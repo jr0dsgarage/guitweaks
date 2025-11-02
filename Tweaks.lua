@@ -141,10 +141,11 @@ function addon:SetObjectiveTrackerBackground(enabled, alpha)
                         errorFrame.guit_bg:ClearAllPoints()
                         errorFrame.guit_bg:SetSize(bgWidth, bgHeight)
                         errorFrame.guit_bg:SetPoint("CENTER", UIParent, "BOTTOMLEFT", centerX, centerY)
-                    elseif foundAnyText and not hasVisibleMessages then
-                        DebugBackgroundState("NoVisibleAlpha", string.format("maxAlpha=%.2f timeSince=%.2f", maxAlpha or -1, timeSinceLastMessage or -1))
                     else
                         -- No visible messages, start fade out
+                        if foundAnyText and not hasVisibleMessages then
+                            DebugBackgroundState("NoVisibleAlpha", string.format("maxAlpha=%.2f timeSince=%.2f", maxAlpha or -1, timeSinceLastMessage or -1))
+                        end
                         errorFrame.guit_targetAlpha = 0
                         errorFrame.guit_fadeTimer = errorFrame.guit_fadeTimer + elapsed
                     end
@@ -159,8 +160,16 @@ function addon:SetObjectiveTrackerBackground(enabled, alpha)
                         errorFrame.guit_currentAlpha = math.max(errorFrame.guit_targetAlpha, errorFrame.guit_currentAlpha - (elapsed * fadeSpeed))
                     end
                     
-                    -- Update background alpha
-                    if errorFrame.guit_currentAlpha > 0.005 then
+                    -- Force hide if no messages for a while, no text exists, or timeout
+                    local shouldForceHide = (errorFrame.guit_fadeTimer > 0.3 and errorFrame.guit_currentAlpha <= 0.005) or not foundAnyText or timeSinceLastMessage > 5
+                    
+                    if shouldForceHide then
+                        errorFrame.guit_bg:Hide()
+                        errorFrame.guit_currentAlpha = 0
+                        errorFrame.guit_targetAlpha = 0
+                        DebugBackgroundState("ForceHide", string.format("timer=%.2f foundAny=%s timeSince=%.2f", errorFrame.guit_fadeTimer or -1, tostring(foundAnyText), timeSinceLastMessage or -1))
+                    elseif errorFrame.guit_currentAlpha > 0.005 then
+                        -- Update background alpha
                         errorFrame.guit_bg:SetAlpha(errorFrame.guit_currentAlpha)
                         errorFrame.guit_bg:Show()
                         if addon.db and addon.db.debugBackground then
@@ -172,14 +181,6 @@ function addon:SetObjectiveTrackerBackground(enabled, alpha)
                         if addon.db and addon.db.debugBackground then
                             DebugBackgroundState("Hide", string.format("state=%s", foundAnyText and "text" or "none"))
                         end
-                    end
-                    
-                    -- Force hide if no messages for a while, no text exists, or timeout
-                    if (errorFrame.guit_fadeTimer > 0.3 and errorFrame.guit_currentAlpha <= 0.005) or not foundAnyText or timeSinceLastMessage > 5 then
-                        errorFrame.guit_bg:Hide()
-                        errorFrame.guit_currentAlpha = 0
-                        errorFrame.guit_targetAlpha = 0
-                        DebugBackgroundState("ForceHide", string.format("timer=%.2f foundAny=%s timeSince=%.2f", errorFrame.guit_fadeTimer or -1, tostring(foundAnyText), timeSinceLastMessage or -1))
                     end
                 end
             end)

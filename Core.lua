@@ -17,6 +17,7 @@ local defaults = {
         objectiveTrackerBG = false,
         objectiveTrackerAlpha = 0.7,
         debugBackground = false,
+        debugPanelVisible = false,
     }
 }
 
@@ -39,6 +40,11 @@ function addon:OnInitialize()
     
     -- Apply tweaks
     self:ApplyTweaks()
+    
+    -- Restore debug panel visibility if it was open
+    if self.db.debugPanelVisible then
+        self:OpenDebugPanel()
+    end
     
     print("|cff00ff00Garage UI Tweaks|r loaded! Type |cffffffff/guit|r or |cffffffff/guitweaks|r to open settings.")
 end
@@ -145,6 +151,7 @@ local function EnsureDebugFrame()
     local closeButton = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
     closeButton:SetPoint("TOPRIGHT", -6, -6)
     closeButton:SetScript("OnClick", function()
+        addon.db.debugPanelVisible = false
         frame:Hide()
     end)
 
@@ -260,6 +267,7 @@ end
 
 function addon:OpenDebugPanel()
     local frame = EnsureDebugFrame()
+    addon.db.debugPanelVisible = true
     frame:Show()
 
     if self.db and self.db.debugFramePosition and self.db.debugFramePosition[1] then
