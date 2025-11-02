@@ -30,8 +30,8 @@ function addon:CreateSettingsPanel()
     -- Quest Tracker Background tweak container
     local trackerBG = CreateFrame("Frame", nil, panel, "BackdropTemplate")
     trackerBG:SetPoint("TOPLEFT", enabledCheckbox, "BOTTOMLEFT", 0, -20)
-    trackerBG:SetPoint("RIGHT", panel, "RIGHT", -16, 0)  -- Stretch to panel width
-    trackerBG:SetHeight(60)
+    trackerBG:SetPoint("RIGHT", panel, "RIGHT", -16, 0)
+    trackerBG:SetHeight(80)
     trackerBG:SetBackdrop({
         bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -39,17 +39,22 @@ function addon:CreateSettingsPanel()
         insets = { left = 4, right = 4, top = 4, bottom = 4 }
     })
     
+    -- Title for quest tracker background tweak
+    local trackerTitle = trackerBG:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    trackerTitle:SetPoint("TOPLEFT", trackerBG, "TOPLEFT", 10, -10)
+    trackerTitle:SetText("Quest Tracker Background")
+    
     -- Checkbox for quest tracker background
     local objectiveBGCheckbox = CreateFrame("CheckButton", nil, trackerBG, "InterfaceOptionsCheckButtonTemplate")
-    objectiveBGCheckbox:SetPoint("TOPLEFT", trackerBG, "TOPLEFT", 10, -10)
-    objectiveBGCheckbox.Text:SetText("Quest Tracker Background")
+    objectiveBGCheckbox:SetPoint("TOPLEFT", trackerTitle, "BOTTOMLEFT", 0, -8)
+    objectiveBGCheckbox.Text:SetText("Enable Background")
     objectiveBGCheckbox:SetChecked(addon.db.objectiveTrackerBG)
     objectiveBGCheckbox:SetScript("OnClick", function(self)
         addon.db.objectiveTrackerBG = self:GetChecked()
         addon:ApplyTweaks()
     end)
     
-    -- Alpha slider for background (on same line)
+    -- Alpha slider for background
     local alphaSlider = CreateFrame("Slider", nil, trackerBG, "OptionsSliderTemplate")
     alphaSlider:SetPoint("LEFT", objectiveBGCheckbox.Text, "RIGHT", 30, 0)
     alphaSlider:SetMinMaxValues(0, 1)
@@ -67,6 +72,41 @@ function addon:CreateSettingsPanel()
         if addon.db.objectiveTrackerBG then
             addon:ApplyTweaks()
         end
+    end)
+    
+    -- Battleground Map Scale tweak container
+    local bgMapScale = CreateFrame("Frame", nil, panel, "BackdropTemplate")
+    bgMapScale:SetPoint("TOPLEFT", trackerBG, "BOTTOMLEFT", 0, -10)
+    bgMapScale:SetPoint("RIGHT", panel, "RIGHT", -16, 0)
+    bgMapScale:SetHeight(80)
+    bgMapScale:SetBackdrop({
+        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 16,
+        insets = { left = 4, right = 4, top = 4, bottom = 4 }
+    })
+    
+    -- Title for battleground map scale tweak
+    local bgMapTitle = bgMapScale:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    bgMapTitle:SetPoint("TOPLEFT", bgMapScale, "TOPLEFT", 10, -10)
+    bgMapTitle:SetText("Battleground Map Scale")
+    
+    -- Scale slider for battleground map
+    local scaleSlider = CreateFrame("Slider", nil, bgMapScale, "OptionsSliderTemplate")
+    scaleSlider:SetPoint("TOPLEFT", bgMapTitle, "BOTTOMLEFT", 10, -12)
+    scaleSlider:SetMinMaxValues(0.5, 2.0)
+    scaleSlider:SetValue(addon.db.battlegroundMapScale or 1.0)
+    scaleSlider:SetValueStep(0.1)
+    scaleSlider:SetObeyStepOnDrag(true)
+    scaleSlider:SetWidth(200)
+    scaleSlider.Low:SetText("50%")
+    scaleSlider.High:SetText("200%")
+    scaleSlider.Text:SetText(string.format("Scale: %.0f%%", (addon.db.battlegroundMapScale or 1.0) * 100))
+    scaleSlider:SetScript("OnValueChanged", function(self, value)
+        value = math.floor(value * 10 + 0.5) / 10  -- Round to nearest 0.1
+        self.Text:SetText(string.format("Scale: %.0f%%", value * 100))
+        addon.db.battlegroundMapScale = value
+        addon:ApplyTweaks()
     end)
     
     -- Add to Interface Options

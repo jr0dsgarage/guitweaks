@@ -18,6 +18,7 @@ local defaults = {
         objectiveTrackerAlpha = 0.7,
         debugBackground = false,
         debugPanelVisible = false,
+        battlegroundMapScale = 1.0,
     }
 }
 

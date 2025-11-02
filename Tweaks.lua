@@ -56,10 +56,10 @@ function addon:SetObjectiveTrackerBackground(enabled, alpha)
         if not errorFrame.guit_hooked then
             hooksecurefunc(errorFrame, "AddMessage", function(self)
                 if errorFrame.guit_bg then
-                    errorFrame.guit_targetAlpha = alpha
                     errorFrame.guit_fadeTimer = 0  -- Reset fade timer
                     errorFrame.guit_lastMessageTime = GetTime()
                     errorFrame.guit_lastDebugText = nil
+                    -- Don't set targetAlpha here - let OnUpdate determine if text is actually visible
                     DebugBackgroundState("AddMessage", string.format("alpha=%.2f", alpha))
                 end
             end)
@@ -126,6 +126,12 @@ function addon:SetObjectiveTrackerBackground(enabled, alpha)
                     maxAlpha = 0
                 end
                 
+                -- If text exists but none are visible, force immediate fade out
+                if foundAnyText and not hasVisibleMessages and timeSinceLastMessage > 0.5 then
+                    foundAnyText = false
+                    maxAlpha = 0
+                end
+                
                 if errorFrame.guit_bg then
                     if hasVisibleMessages and minX and maxAlpha > 0.01 then
                         -- Messages are visible, fade in
@@ -167,7 +173,10 @@ function addon:SetObjectiveTrackerBackground(enabled, alpha)
                         errorFrame.guit_bg:Hide()
                         errorFrame.guit_currentAlpha = 0
                         errorFrame.guit_targetAlpha = 0
-                        DebugBackgroundState("ForceHide", string.format("timer=%.2f foundAny=%s timeSince=%.2f", errorFrame.guit_fadeTimer or -1, tostring(foundAnyText), timeSinceLastMessage or -1))
+                        errorFrame.guit_fadeTimer = 0
+                        if addon.db and addon.db.debugBackground then
+                            DebugBackgroundState("ForceHide", string.format("timer=%.2f foundAny=%s timeSince=%.2f", errorFrame.guit_fadeTimer or -1, tostring(foundAnyText), timeSinceLastMessage or -1))
+                        end
                     elseif errorFrame.guit_currentAlpha > 0.005 then
                         -- Update background alpha
                         errorFrame.guit_bg:SetAlpha(errorFrame.guit_currentAlpha)
@@ -286,4 +295,17 @@ function addon:ApplyTweaks()
     
     -- Apply objective tracker background
     self:SetObjectiveTrackerBackground(self.db.objectiveTrackerBG, self.db.objectiveTrackerAlpha)
+    
+    -- Apply battleground map scale
+    self:SetBattlegroundMapScale(self.db.battlegroundMapScale)
+end
+
+-- Set battleground map scale
+function addon:SetBattlegroundMapScale(scale)
+    scale = scale or 1.0
+    
+    -- BattlefieldMapFrame is the main battleground map
+    if BattlefieldMapFrame then
+        BattlefieldMapFrame:SetScale(scale)
+    end
 end
