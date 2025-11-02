@@ -1,3 +1,4 @@
+---@diagnostic disable: undefined-global
 -- Garage UI Tweaks Core
 local addonName, addon = ...
 
@@ -38,7 +39,7 @@ function addon:OnInitialize()
     -- Apply tweaks
     self:ApplyTweaks()
     
-    print("|cff00ff00Garage UI Tweaks|r loaded! Type |cffffffff/guit|r to open settings.")
+    print("|cff00ff00Garage UI Tweaks|r loaded! Type |cffffffff/guit|r or |cffffffff/guitweaks|r to open settings.")
 end
 
 -- Event handling
@@ -55,10 +56,34 @@ GUITweaks:SetScript("OnEvent", function(self, event, ...)
 end)
 
 -- Slash command registration
+local function SanitizeCommand(msg)
+    msg = tostring(msg or "")
+    msg = msg:gsub("^%s+", ""):gsub("%s+$", "")
+    return msg
+end
+
+local function PrintHelp()
+    print("|cff00ff00Garage UI Tweaks|r commands:")
+    print("  |cffffffff/guit|r or |cffffffff/guitweaks|r - open settings")
+    print("  |cffffffff/guit config|r - open settings")
+end
+
 SLASH_GUIT1 = "/guit"
-SLASH_GUIT2 = "/garageui"
+SLASH_GUIT2 = "/guitweaks"
+SLASH_GUIT3 = "/garageui"
+
 SlashCmdList["GUIT"] = function(msg)
-    addon:OpenSettings()
+    msg = SanitizeCommand(msg):lower()
+
+    if msg == "" or msg == "config" or msg == "options" or msg == "settings" then
+        addon:OpenSettings()
+        if msg == "" then
+            PrintHelp()
+        end
+        return
+    end
+
+    PrintHelp()
 end
 
 -- Global reference

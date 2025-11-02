@@ -1,3 +1,4 @@
+---@diagnostic disable: undefined-global
 -- Garage UI Tweaks Settings
 local addonName, addon = ...
 
@@ -73,6 +74,7 @@ function addon:CreateSettingsPanel()
         -- Modern settings system (Dragonflight+)
         local category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
         Settings.RegisterAddOnCategory(category)
+        addon.settingsCategory = category
     else
         -- Legacy settings system
         InterfaceOptions_AddCategory(panel)
@@ -83,15 +85,25 @@ end
 
 -- Open settings panel
 function addon:OpenSettings()
+    if not self.settingsPanel then
+        self:CreateSettingsPanel()
+    end
+
     if Settings and Settings.OpenToCategory then
         -- Modern settings system (Dragonflight+)
-        local category = Settings.GetCategory("Garage UI Tweaks")
-        if category then
-            Settings.OpenToCategory(category:GetID())
-        else
-            -- Fallback if category not found by name
-            Settings.OpenToCategory("Garage UI Tweaks")
+        local categoryID
+        if self.settingsCategory and self.settingsCategory.GetID then
+            categoryID = self.settingsCategory:GetID()
         end
+
+        if not categoryID then
+            local category = Settings.GetCategory("Garage UI Tweaks")
+            if category and category.GetID then
+                categoryID = category:GetID()
+            end
+        end
+
+        Settings.OpenToCategory(categoryID or "Garage UI Tweaks")
     elseif InterfaceOptionsFrame_OpenToCategory then
         -- Legacy settings system - call twice to ensure it opens to correct panel
         InterfaceOptionsFrame_OpenToCategory(self.settingsPanel)
