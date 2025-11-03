@@ -1,5 +1,5 @@
 ---@diagnostic disable: undefined-global
--- Garage UI Tweaks - UI Modifications
+-- Garage UI Tweaks - Objective Tracker Background
 local addonName, addon = ...
 
 local PADDING = 12
@@ -255,24 +255,6 @@ local function ensureErrorFrame()
     return frame, state
 end
 
-function addon:SetObjectiveTrackerBackground(enabled, alpha)
-    local frame, state = ensureErrorFrame()
-    if not frame or not state then
-        return
-    end
-
-    state.alpha = alpha or state.alpha or 0.7
-
-    if not enabled then
-        hideBackground(frame, state)
-        return
-    end
-
-    hideBackground(frame, state)
-    state.timeSinceInvisible = INVISIBLE_TIMEOUT
-    debugLog(state, string.format("[Enable] alpha=%.2f", state.alpha))
-end
-
 local function collectBackgroundDebugLines()
     local lines = {}
     local frame = UIErrorsFrame
@@ -313,6 +295,24 @@ local function collectBackgroundDebugLines()
     return lines
 end
 
+function addon:SetObjectiveTrackerBackground(enabled, alpha)
+    local frame, state = ensureErrorFrame()
+    if not frame or not state then
+        return
+    end
+
+    state.alpha = alpha or state.alpha or 0.7
+
+    if not enabled then
+        hideBackground(frame, state)
+        return
+    end
+
+    hideBackground(frame, state)
+    state.timeSinceInvisible = INVISIBLE_TIMEOUT
+    debugLog(state, string.format("[Enable] alpha=%.2f", state.alpha))
+end
+
 function addon:DumpBackgroundDebug(quiet)
     local lines = collectBackgroundDebugLines()
     local text = table.concat(lines, "\n")
@@ -337,35 +337,4 @@ function addon:ResetBackgroundDebugLog()
 
     frame.guitState.debugLog = {}
     frame.guitState.lastDebugAt = {}
-end
-
-function addon:ApplyTweaks()
-    if not self.db then
-        return
-    end
-
-    self:SetObjectiveTrackerBackground(self.db.objectiveTrackerBG, self.db.objectiveTrackerAlpha)
-    self:SetBattlegroundMapScale(self.db.battlegroundMapScale)
-end
-
-function addon:SetBattlegroundMapScale(scale)
-    scale = scale or 1.0
-
-    if BattlefieldMapFrame then
-        BattlefieldMapFrame:SetScale(scale)
-    end
-
-    if not addon.battlegroundMapHooked then
-        local frame = CreateFrame("Frame")
-        frame:RegisterEvent("PLAYER_ENTERING_BATTLEGROUND")
-        frame:SetScript("OnEvent", function()
-            C_Timer.After(0.1, function()
-                if BattlefieldMapFrame and addon.db and addon.db.battlegroundMapScale then
-                    BattlefieldMapFrame:SetScale(addon.db.battlegroundMapScale)
-                end
-            end)
-        end)
-
-        addon.battlegroundMapHooked = true
-    end
 end

@@ -42,6 +42,13 @@ function addon:OnInitialize()
     -- Apply tweaks
     self:ApplyTweaks()
     
+    -- Delayed reapply for frames that load late
+    C_Timer.After(1, function()
+        if addon.db and addon.db.battlegroundMapScale then
+            addon:SetBattlegroundMapScale(addon.db.battlegroundMapScale)
+        end
+    end)
+    
     -- Restore debug panel visibility if it was open
     if self.db.debugPanelVisible then
         self:OpenDebugPanel()
