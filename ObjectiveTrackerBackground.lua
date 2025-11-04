@@ -4,6 +4,7 @@ local addonName, addon = ...
 
 local PADDING = 12
 local INVISIBLE_TIMEOUT = 0.35
+local RECENT_MESSAGE_GRACE = 0.55
 
 local function shorten(text)
     if not text or text == "" then
@@ -25,6 +26,8 @@ local function ensureFrameState(frame)
     state.timeSinceInvisible = state.timeSinceInvisible or INVISIBLE_TIMEOUT
     state.debugLog = state.debugLog or {}
     state.lastDebugAt = state.lastDebugAt or {}
+    state.lastMessageTime = state.lastMessageTime or 0
+    state.lastVisibleTime = state.lastVisibleTime or 0
 
     return state
 end
@@ -151,6 +154,7 @@ local function hideBackground(frame, state)
     state.bgVisible = false
     state.sampleText = nil
     state.lastBounds = nil
+    state.lastVisibleTime = 0
 end
 
 local function showBackground(frame, state, info, baseAlpha)
@@ -193,6 +197,7 @@ local function backgroundOnUpdate(frame, elapsed)
     end
 
     state.alpha = addon.db.objectiveTrackerAlpha or state.alpha or 0.7
+    local now = (GetTime and GetTime()) or 0
 
     local info = gatherFontStringInfo(frame)
     state.hasText = info.hasText
@@ -202,18 +207,22 @@ local function backgroundOnUpdate(frame, elapsed)
 
     if info.hasVisible and (info.bounds or state.lastBounds) then
         state.timeSinceInvisible = 0
+        state.lastVisibleTime = now
         local brightness = (info.maxAlpha and info.maxAlpha > 0) and info.maxAlpha or 1
         local adjustedAlpha = math.min(1, state.alpha * brightness)
         showBackground(frame, state, info, adjustedAlpha)
     else
         state.timeSinceInvisible = (state.timeSinceInvisible or 0) + elapsed
-        if state.timeSinceInvisible >= INVISIBLE_TIMEOUT or not info.hasText then
-            if state.bgVisible then
-                hideBackground(frame, state)
-            end
-            if not info.hasText then
-                state.sampleText = nil
-                state.lastBounds = nil
+        if state.timeSinceInvisible >= INVISIBLE_TIMEOUT then
+            local lastMessageAgo = now - (state.lastMessageTime or 0)
+            local lastVisibleAgo = now - (state.lastVisibleTime or 0)
+            if lastMessageAgo >= RECENT_MESSAGE_GRACE and lastVisibleAgo >= RECENT_MESSAGE_GRACE then
+                if state.bgVisible then
+                    hideBackground(frame, state)
+                elseif not info.hasText then
+                    state.sampleText = nil
+                    state.lastBounds = nil
+                end
             end
         end
     end
@@ -226,7 +235,7 @@ local function onAddMessage(frame, text)
 
     local state = ensureFrameState(frame)
     state.timeSinceInvisible = 0
-    state.lastMessageTime = (GetTime and GetTime()) or 0
+    state.lastMessageTime = (GetTime and GetTime()) or state.lastMessageTime or 0
 
     local short = shorten(text)
     state.lastAddedMessage = short or state.lastAddedMessage
