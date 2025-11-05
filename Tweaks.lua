@@ -4,7 +4,10 @@ local addonName, addon = ...
 
 local PADDING = 12
 local INVISIBLE_TIMEOUT = 0.35
-local RECENT_MESSAGE_GRACE = 0.55
+
+local function getNow()
+    return (GetTime and GetTime()) or 0
+end
 
 local function shorten(text)
     if not text or text == "" then
@@ -26,8 +29,8 @@ local function ensureFrameState(frame)
     state.timeSinceInvisible = state.timeSinceInvisible or INVISIBLE_TIMEOUT
     state.debugLog = state.debugLog or {}
     state.lastDebugAt = state.lastDebugAt or {}
-    state.lastMessageTime = state.lastMessageTime or 0
-    state.lastVisibleTime = state.lastVisibleTime or 0
+    state.lastMessageTime = state.lastMessageTime or getNow()
+    state.lastVisibleAgo = state.lastVisibleAgo or state.timeSinceInvisible
 
     return state
 end
@@ -89,6 +92,23 @@ local function computeRegionBounds(region)
     return centerX - halfW, centerX + halfW, centerY - halfH, centerY + halfH
 end
 
+local function forEachFontString(frame, callback)
+    if frame.fontStringPool and frame.fontStringPool.EnumerateActive then
+        for fontString in frame.fontStringPool:EnumerateActive() do
+            callback(fontString)
+        end
+        return
+    end
+
+    local numRegions = frame:GetNumRegions()
+    for i = 1, numRegions do
+        local region = select(i, frame:GetRegions())
+        if region and region:IsObjectType("FontString") then
+            callback(region)
+        end
+    end
+end
+
 local function gatherFontStringInfo(frame)
     local hasText = false
     local hasVisible = false
@@ -96,35 +116,39 @@ local function gatherFontStringInfo(frame)
     local firstAnyText
     local firstVisibleText
     local minLeft, maxRight, minBottom, maxTop
+    local visibleCount = 0
+    local totalCount = 0
 
-    local numRegions = frame:GetNumRegions()
-    for i = 1, numRegions do
-        local region = select(i, frame:GetRegions())
-        if region and region:IsObjectType("FontString") then
-            local text = region:GetText()
-            if text and text ~= "" then
-                hasText = true
-                firstAnyText = firstAnyText or text
+    forEachFontString(frame, function(region)
+        totalCount = totalCount + 1
+        if not region or not region.GetText then
+            return
+        end
 
-                if region:IsShown() then
-                    local alpha = region:GetAlpha() or 0
-                    if alpha > 0.05 then
-                        hasVisible = true
-                        maxAlpha = math.max(maxAlpha, alpha)
-                        firstVisibleText = firstVisibleText or text
+        local text = region:GetText()
+        if text and text ~= "" then
+            hasText = true
+            firstAnyText = firstAnyText or text
 
-                        local left, right, bottom, top = computeRegionBounds(region)
-                        if left and right and bottom and top then
-                            minLeft = minLeft and math.min(minLeft, left) or left
-                            maxRight = maxRight and math.max(maxRight, right) or right
-                            minBottom = minBottom and math.min(minBottom, bottom) or bottom
-                            maxTop = maxTop and math.max(maxTop, top) or top
-                        end
+            if region:IsVisible() then
+                local alpha = region:GetAlpha() or 0
+                if alpha > 0.05 then
+                    hasVisible = true
+                    visibleCount = visibleCount + 1
+                    maxAlpha = math.max(maxAlpha, alpha)
+                    firstVisibleText = firstVisibleText or text
+
+                    local left, right, bottom, top = computeRegionBounds(region)
+                    if left and right and bottom and top then
+                        minLeft = minLeft and math.min(minLeft, left) or left
+                        maxRight = maxRight and math.max(maxRight, right) or right
+                        minBottom = minBottom and math.min(minBottom, bottom) or bottom
+                        maxTop = maxTop and math.max(maxTop, top) or top
                     end
                 end
             end
         end
-    end
+    end)
 
     local bounds
     if hasVisible and minLeft and maxRight and minBottom and maxTop then
@@ -142,6 +166,8 @@ local function gatherFontStringInfo(frame)
         maxAlpha = maxAlpha,
         bounds = bounds,
         sampleText = firstVisibleText or firstAnyText,
+        visibleCount = visibleCount,
+        totalCount = totalCount,
     }
 end
 
@@ -154,7 +180,6 @@ local function hideBackground(frame, state)
     state.bgVisible = false
     state.sampleText = nil
     state.lastBounds = nil
-    state.lastVisibleTime = 0
 end
 
 local function showBackground(frame, state, info, baseAlpha)
@@ -193,36 +218,45 @@ local function backgroundOnUpdate(frame, elapsed)
             hideBackground(frame, state)
         end
         state.timeSinceInvisible = INVISIBLE_TIMEOUT
+        state.lastVisibleAgo = state.timeSinceInvisible
+        state.lastMessageAgo = getNow() - (state.lastMessageTime or getNow())
         return
     end
 
-    state.alpha = addon.db.objectiveTrackerAlpha or state.alpha or 0.7
-    local now = (GetTime and GetTime()) or 0
-
+    local now = getNow()
     local info = gatherFontStringInfo(frame)
+
+    state.sampleText = shorten(info.sampleText) or state.sampleText
     state.hasText = info.hasText
     state.hasVisible = info.hasVisible
-    state.sampleText = shorten(info.sampleText) or state.sampleText
+    state.visibleCount = info.visibleCount or 0
+    state.totalCount = info.totalCount or 0
     state.maxAlpha = info.maxAlpha or 0
+    state.frameAlpha = frame.GetAlpha and frame:GetAlpha() or 1
+    state.frameShown = frame:IsShown() or false
+    state.lastMessageAgo = now - (state.lastMessageTime or now)
 
-    if info.hasVisible and (info.bounds or state.lastBounds) then
+    local timeSinceInvisible = (state.timeSinceInvisible or 0) + elapsed
+    local shouldShow = state.visibleCount > 0 and (info.bounds or state.lastBounds)
+
+    if shouldShow then
         state.timeSinceInvisible = 0
-        state.lastVisibleTime = now
-        local brightness = (info.maxAlpha and info.maxAlpha > 0) and info.maxAlpha or 1
-        local adjustedAlpha = math.min(1, state.alpha * brightness)
+        state.lastVisibleAgo = 0
+        local baseAlpha = addon.db.objectiveTrackerAlpha or 0.7
+        local brightness = (state.maxAlpha > 0) and state.maxAlpha or 1
+        local adjustedAlpha = math.min(1, baseAlpha * brightness)
         showBackground(frame, state, info, adjustedAlpha)
     else
-        state.timeSinceInvisible = (state.timeSinceInvisible or 0) + elapsed
+        state.timeSinceInvisible = timeSinceInvisible
+        state.lastVisibleAgo = state.timeSinceInvisible
+
         if state.timeSinceInvisible >= INVISIBLE_TIMEOUT then
-            local lastMessageAgo = now - (state.lastMessageTime or 0)
-            local lastVisibleAgo = now - (state.lastVisibleTime or 0)
-            if lastMessageAgo >= RECENT_MESSAGE_GRACE and lastVisibleAgo >= RECENT_MESSAGE_GRACE then
-                if state.bgVisible then
-                    hideBackground(frame, state)
-                elseif not info.hasText then
-                    state.sampleText = nil
-                    state.lastBounds = nil
-                end
+            if state.bgVisible then
+                hideBackground(frame, state)
+            end
+            if state.visibleCount == 0 then
+                state.sampleText = nil
+                state.lastBounds = nil
             end
         end
     end
@@ -235,7 +269,7 @@ local function onAddMessage(frame, text)
 
     local state = ensureFrameState(frame)
     state.timeSinceInvisible = 0
-    state.lastMessageTime = (GetTime and GetTime()) or state.lastMessageTime or 0
+    state.lastMessageTime = getNow()
 
     local short = shorten(text)
     state.lastAddedMessage = short or state.lastAddedMessage
@@ -257,6 +291,14 @@ local function ensureErrorFrame()
 
     if not frame.guitHooked then
         frame:HookScript("OnUpdate", backgroundOnUpdate)
+        frame:HookScript("OnHide", function(self)
+            local hideState = ensureFrameState(self)
+            if hideState.bgVisible then
+                hideBackground(self, hideState)
+            end
+            hideState.timeSinceInvisible = INVISIBLE_TIMEOUT
+            hideState.lastVisibleAgo = hideState.timeSinceInvisible
+        end)
         hooksecurefunc(frame, "AddMessage", onAddMessage)
         frame.guitHooked = true
     end
@@ -302,10 +344,18 @@ local function collectBackgroundDebugLines()
     end
 
     lines[#lines + 1] = string.format("[GUIT BG] hasText=%s hasVisible=%s maxAlpha=%.2f", tostring(state.hasText), tostring(state.hasVisible), state.maxAlpha or 0)
+    lines[#lines + 1] = string.format("[GUIT BG] visibleCount=%d totalCount=%d", state.visibleCount or -1, state.totalCount or -1)
+    lines[#lines + 1] = string.format("[GUIT BG] bgVisible=%s", tostring(state.bgVisible))
+    lines[#lines + 1] = string.format("[GUIT BG] lastMsgAgo=%.2f lastVisAgo=%.2f", state.lastMessageAgo or -1, state.lastVisibleAgo or -1)
+    lines[#lines + 1] = string.format("[GUIT BG] frameShown=%s frameAlpha=%.2f", tostring(state.frameShown), state.frameAlpha or -1)
     lines[#lines + 1] = string.format("[GUIT BG] timeSinceInvisible=%.2f", state.timeSinceInvisible or 0)
 
     if state.sampleText then
         lines[#lines + 1] = string.format("[GUIT BG] sample text: %s", state.sampleText)
+    end
+
+    if state.lastBounds then
+        lines[#lines + 1] = string.format("[GUIT BG] cached bounds: (%.0f, %.0f)-(%.0f, %.0f)", state.lastBounds.minX or 0, state.lastBounds.minY or 0, state.lastBounds.maxX or 0, state.lastBounds.maxY or 0)
     end
 
     local log = state.debugLog
