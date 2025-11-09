@@ -6,7 +6,7 @@ Quality-of-life UI tweaks for World of Warcraft.
 
 - Timed background behind UI error text for quick readability without lingering.
 - Adjustable battleground map scale for better visibility in PvP.
-- Movable speed panel that displays your current movement speed in real time.
+- Movable speed panel that displays your current movement speed in real time, with customizable font, background, and border.
 
 ## In Progress
 
