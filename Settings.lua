@@ -357,6 +357,20 @@ function addon:CreateSettingsPanel()
     UpdateSpeedPanelControls()
     ResizeSection(speedPanel, speedInfo, 260)
 
+    -- Personal Resource Display Tweak
+    local prdPanel, prdTitle = CreateSection("Personal Resource Display", "Manage the visibility of the Personal Resource Display (health/mana bar under your character).", 80)
+
+    local prdCombatCheckbox = CreateFrame("CheckButton", nil, prdPanel, "InterfaceOptionsCheckButtonTemplate")
+    prdCombatCheckbox:SetPoint("TOPLEFT", prdTitle, "BOTTOMLEFT", 0, -12)
+    prdCombatCheckbox.Text:SetText("Show Only in Combat")
+    prdCombatCheckbox:SetChecked(addon.db.personalResourceDisplayCombatOnly)
+    prdCombatCheckbox:SetScript("OnClick", function(self)
+        addon.db.personalResourceDisplayCombatOnly = self:GetChecked()
+        addon:SetPersonalResourceDisplayCombatOnly(addon.db.personalResourceDisplayCombatOnly)
+    end)
+
+    ResizeSection(prdPanel, prdCombatCheckbox, 80)
+
     scrollChild:SetHeight(math.max(totalHeight, 1))
     
     -- Add to Interface Options

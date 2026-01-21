@@ -24,6 +24,7 @@ local defaults = {
         speedPanelFontKey = "GameFontHighlightLarge",
         speedPanelBackgroundKey = "dialog",
         speedPanelBorderKey = "tooltip",
+        personalResourceDisplayCombatOnly = false,
     }
 }
 
