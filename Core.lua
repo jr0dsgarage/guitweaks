@@ -24,7 +24,12 @@ local defaults = {
         speedPanelFontKey = "GameFontHighlightLarge",
         speedPanelBackgroundKey = "dialog",
         speedPanelBorderKey = "tooltip",
-        personalResourceDisplayCombatOnly = false,
+        prdTexture = "Interface\\TargetingFrame\\UI-TargetingFrame-BarFill",
+        chatEditBoxUnlock = false,
+        chatEditBoxPosition = nil,
+        chatEditBoxWidth = 450,
+        chatEditBoxAnchor = "CENTER",
+        chatEditBoxHideBorder = false,
     }
 }
 

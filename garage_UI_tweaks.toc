@@ -10,5 +10,6 @@ ErrorTextBackground.lua
 BattlegroundMap.lua
 SpeedPanel.lua
 PersonalResourceDisplay.lua
+ChatTweaks.lua
 Tweaks.lua
 Settings.lua

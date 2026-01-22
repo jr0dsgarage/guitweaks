@@ -1,6 +1,7 @@
 ---@diagnostic disable: undefined-global
 -- Garage UI Tweaks Settings
 local addonName, addon = ...
+local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 
 -- Create the settings panel for Interface Options
 function addon:CreateSettingsPanel()
@@ -17,40 +18,110 @@ function addon:CreateSettingsPanel()
     desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
     desc:SetText("Configure your UI tweaks below.")
     
-    -- Enable checkbox at the top
+    -- Enable checkbox (Global)
     local enabledCheckbox = CreateFrame("CheckButton", nil, panel, "InterfaceOptionsCheckButtonTemplate")
-    enabledCheckbox:SetPoint("TOPLEFT", desc, "BOTTOMLEFT", 0, -20)
+    enabledCheckbox:SetPoint("TOPLEFT", desc, "BOTTOMLEFT", 0, -12)
     enabledCheckbox.Text:SetText("Enable Garage UI Tweaks")
     enabledCheckbox:SetChecked(addon.db.enabled)
     enabledCheckbox:SetScript("OnClick", function(self)
         addon.db.enabled = self:GetChecked()
         print("|cff00ff00Garage UI Tweaks:|r " .. (addon.db.enabled and "Enabled" or "Disabled"))
     end)
+
+    -- Tabs Container
+    local tabContainer = CreateFrame("Frame", nil, panel)
+    tabContainer:SetPoint("TOPLEFT", enabledCheckbox, "BOTTOMLEFT", 0, -20)
+    tabContainer:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -16, 16)
     
-    -- Scroll container for tweak sections
-    local scrollFrame = CreateFrame("ScrollFrame", "GarageUITweaksOptionsScroll", panel, "UIPanelScrollFrameTemplate")
-    scrollFrame:SetPoint("TOPLEFT", enabledCheckbox, "BOTTOMLEFT", 0, -16)
-    scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -28, 16)
+    -- Tab Content Frames
+    local tabs = {}
+    local currentTab = nil
 
-    local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-    scrollChild:SetWidth(1)
-    scrollChild:SetHeight(1)
-    scrollFrame:SetScrollChild(scrollChild)
-
-    local function UpdateScrollChildWidth()
-        local width = scrollFrame:GetWidth()
-        if width and width > 0 then
-            scrollChild:SetWidth(width - 12)
+    local function ShowTab(tabID)
+        for id, tab in pairs(tabs) do
+            if id == tabID then
+                tab.frame:Show()
+                if PanelTemplates_SelectTab then
+                    PanelTemplates_SelectTab(tab.button)
+                else
+                    tab.button:LockHighlight()
+                    tab.button:Disable() -- Traditional tab behavior
+                    if tab.button.SetChecked then tab.button:SetChecked(true) end
+                end
+            else
+                tab.frame:Hide()
+                if PanelTemplates_DeselectTab then
+                    PanelTemplates_DeselectTab(tab.button)
+                else
+                    tab.button:UnlockHighlight()
+                    tab.button:Enable()
+                    if tab.button.SetChecked then tab.button:SetChecked(false) end
+                end
+            end
         end
+        currentTab = tabID
     end
-    scrollFrame:SetScript("OnSizeChanged", UpdateScrollChildWidth)
-    UpdateScrollChildWidth()
 
-    local lastSection
-    local totalHeight = 0
+    local function CreateTabButton(id, text, index)
+        -- Using PanelTopTabButtonTemplate for the 'Tab' look
+        local btnName = "GarageUITweaksTab" .. index
+        local btn = CreateFrame("Button", btnName, panel, "PanelTopTabButtonTemplate")
+        btn:SetID(index)
+        btn:SetText(text)
+        
+        -- Position tabs relative to tabContainer or previously created tab
+        -- Standard tab placement is usually tied to the panel top or bottom of previous element
+        if index == 1 then
+             btn:SetPoint("BOTTOMLEFT", tabContainer, "TOPLEFT", 6, -2)
+        else
+             local prevTab = tabs[tabs[index-1]] -- Need ordered access, but tabs is hash map? No, I control insertion
+             -- Actually, simple positioning based on index works if we assume order
+             -- But since tabs is keyed by ID string, let's just use strict positioning
+             btn:SetPoint("LEFT", _G["GarageUITweaksTab" .. (index - 1)], "RIGHT", 2, 0)
+        end
 
-    local function CreateSection(titleText, descriptionText, height)
-        local section = CreateFrame("Frame", nil, scrollChild, "BackdropTemplate")
+        -- Resize to fit text
+        if PanelTemplates_TabResize then
+            PanelTemplates_TabResize(btn, 0)
+        else
+            local textWidth = btn:GetFontString():GetStringWidth()
+            btn:SetWidth(textWidth + 20)
+        end
+        
+        local content = CreateFrame("Frame", nil, tabContainer)
+        content:SetAllPoints()
+        content:Hide()
+
+        -- Add scroll frame support for content
+        local scrollFrame = CreateFrame("ScrollFrame", nil, content, "UIPanelScrollFrameTemplate")
+        scrollFrame:SetPoint("TOPLEFT", 0, 0)
+        scrollFrame:SetPoint("BOTTOMRIGHT", -26, 0)
+        
+        local scrollChild = CreateFrame("Frame", nil, scrollFrame)
+        scrollChild:SetWidth(tabContainer:GetWidth() - 26)
+        scrollChild:SetHeight(1) -- Will grow
+        scrollFrame:SetScrollChild(scrollChild)
+
+        scrollFrame:SetScript("OnSizeChanged", function(self)
+            scrollChild:SetWidth(self:GetWidth())
+        end)
+
+        btn:SetScript("OnClick", function() ShowTab(id) end)
+
+        tabs[id] = { button = btn, frame = content, scrollChild = scrollChild, totalHeight = 0, lastSection = nil }
+        return tabs[id]
+    end
+
+    -- Tab Definitions
+    local tabGeneral = CreateTabButton("general", "General", 1)
+    local tabChat = CreateTabButton("chat", "Chat Box", 2)
+    local tabSpeed = CreateTabButton("speed", "Speed Panel", 3)
+    local tabPRD = CreateTabButton("prd", "PRD", 4)
+
+    -- Helper to add sections to a tab
+    local function CreateSection(tab, titleText, descriptionText, height)
+        local parent = tab.scrollChild
+        local section = CreateFrame("Frame", nil, parent, "BackdropTemplate")
         section:SetBackdrop({
             bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
             edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -58,13 +129,14 @@ function addon:CreateSettingsPanel()
             insets = { left = 4, right = 4, top = 4, bottom = 4 }
         })
 
-        if lastSection then
-            section:SetPoint("TOPLEFT", lastSection, "BOTTOMLEFT", 0, -16)
-            totalHeight = totalHeight + 16
+        if tab.lastSection then
+            section:SetPoint("TOPLEFT", tab.lastSection, "BOTTOMLEFT", 0, -16)
+            tab.totalHeight = tab.totalHeight + 16
         else
-            section:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, 0)
+            section:SetPoint("TOPLEFT", parent, "TOPLEFT", 4, -4)
+            tab.totalHeight = tab.totalHeight + 4
         end
-        section:SetPoint("RIGHT", scrollChild, "RIGHT", -8, 0)
+        section:SetPoint("RIGHT", parent, "RIGHT", -4, 0)
         section:SetHeight(height)
 
         local title = section:CreateFontString(nil, "ARTWORK", "GameFontNormal")
@@ -77,33 +149,20 @@ function addon:CreateSettingsPanel()
         desc:SetJustifyH("LEFT")
         desc:SetText(descriptionText)
 
-        lastSection = section
-        totalHeight = totalHeight + height
+        tab.lastSection = section
+        tab.totalHeight = tab.totalHeight + height
+        parent:SetHeight(math.max(tab.totalHeight, 100))
 
         return section, title, desc
     end
 
-    local function ResizeSection(section, bottomWidget, minHeight)
-        if not section or not bottomWidget then
-            return
-        end
-        local oldHeight = section:GetHeight() or 0
-        local top = section:GetTop()
-        local bottom = bottomWidget:GetBottom()
-        if not top or not bottom then
-            return
-        end
-        local height = (top - bottom) + 24
-        if minHeight then
-            height = math.max(minHeight, height)
-        end
-        section:SetHeight(height)
-        totalHeight = totalHeight - oldHeight + height
-    end
-
-    -- Error text background container
-    local errorBG, errorTitle = CreateSection("Error Text Background", "Draws a backdrop behind UI errors briefly to improve visibility, then hides it automatically.", 170)
-
+    -- ====================
+    -- GENERAL TAB CONTENT
+    -- ====================
+    
+    -- Error Text Background
+    local errorBG, errorTitle = CreateSection(tabGeneral, "Error Text Background", "Draws a backdrop behind UI errors briefly to improve visibility.", 170)
+    
     local errorCheckbox = CreateFrame("CheckButton", nil, errorBG, "InterfaceOptionsCheckButtonTemplate")
     errorCheckbox:SetPoint("TOPLEFT", errorTitle, "BOTTOMLEFT", 0, -12)
     errorCheckbox.Text:SetText("Enable Background")
@@ -131,21 +190,11 @@ function addon:CreateSettingsPanel()
     durationSlider.High:SetText("5s")
     durationSlider.Text:SetText(string.format("Duration: %.1fs", addon.db.errorTextBackgroundDuration or 3.0))
 
-    local function UpdateErrorBackgroundControls()
-        local enabled = addon.db.errorTextBackgroundEnabled
-        errorCheckbox:SetChecked(enabled)
-        alphaSlider:SetEnabled(enabled)
-        durationSlider:SetEnabled(enabled)
-
-        local textColor = enabled and 1 or 0.5
-        alphaSlider.Text:SetTextColor(textColor, textColor, textColor)
-        durationSlider.Text:SetTextColor(textColor, textColor, textColor)
-    end
-
     errorCheckbox:SetScript("OnClick", function(self)
         addon.db.errorTextBackgroundEnabled = self:GetChecked()
         addon:SetErrorTextBackground(addon.db.errorTextBackgroundEnabled, addon.db.errorTextBackgroundAlpha, addon.db.errorTextBackgroundDuration)
-        UpdateErrorBackgroundControls()
+        alphaSlider:SetEnabled(addon.db.errorTextBackgroundEnabled)
+        durationSlider:SetEnabled(addon.db.errorTextBackgroundEnabled)
     end)
 
     alphaSlider:SetScript("OnValueChanged", function(self, value)
@@ -154,7 +203,7 @@ function addon:CreateSettingsPanel()
         addon.db.errorTextBackgroundAlpha = value
         addon:SetErrorTextBackground(addon.db.errorTextBackgroundEnabled, addon.db.errorTextBackgroundAlpha, addon.db.errorTextBackgroundDuration)
     end)
-
+    
     durationSlider:SetScript("OnValueChanged", function(self, value)
         value = math.floor(value * 10 + 0.5) / 10
         self.Text:SetText(string.format("Duration: %.1fs", value))
@@ -162,13 +211,10 @@ function addon:CreateSettingsPanel()
         addon:SetErrorTextBackground(addon.db.errorTextBackgroundEnabled, addon.db.errorTextBackgroundAlpha, addon.db.errorTextBackgroundDuration)
     end)
 
-    UpdateErrorBackgroundControls()
-    ResizeSection(errorBG, durationSlider, 170)
 
-    -- Battleground Map Scale tweak container
-    local bgMapScale, bgMapTitle = CreateSection("Battleground Map Scale", "Adjust the battlefield map size to your preference when entering battlegrounds.", 140)
-
-    -- Scale slider for battleground map
+    -- Map Scale
+    local bgMapScale, bgMapTitle = CreateSection(tabGeneral, "Battleground Map Scale", "Adjust the battlefield map size (Shift+M).", 100)
+    
     local scaleSlider = CreateFrame("Slider", nil, bgMapScale, "OptionsSliderTemplate")
     scaleSlider:SetPoint("TOPLEFT", bgMapTitle, "BOTTOMLEFT", 0, -28)
     scaleSlider:SetMinMaxValues(0.5, 2.0)
@@ -176,20 +222,97 @@ function addon:CreateSettingsPanel()
     scaleSlider:SetValueStep(0.1)
     scaleSlider:SetObeyStepOnDrag(true)
     scaleSlider:SetWidth(200)
-    scaleSlider.Low:SetText("50%")
-    scaleSlider.High:SetText("200%")
     scaleSlider.Text:SetText(string.format("Scale: %.0f%%", (addon.db.battlegroundMapScale or 1.0) * 100))
     scaleSlider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value * 10 + 0.5) / 10  -- Round to nearest 0.1
+        value = math.floor(value * 10 + 0.5) / 10
         self.Text:SetText(string.format("Scale: %.0f%%", value * 100))
         addon.db.battlegroundMapScale = value
         addon:ApplyTweaks()
     end)
-    ResizeSection(bgMapScale, scaleSlider, 120)
 
-    -- Speed panel tweak container
-    local speedPanel, speedTitle = CreateSection("Speed Panel", "Displays your current movement speed. Unlock to move it and tweak font, background, and border to fit your UI.", 320)
 
+    -- ====================
+    -- CHAT TAB
+    -- ====================
+    local chatPanel, chatTitle = CreateSection(tabChat, "Chat Entry Box", "Customize the position and appearance of the chat input box.", 300)
+
+    -- Unlock / Drag
+    local chatUnlock = CreateFrame("CheckButton", nil, chatPanel, "InterfaceOptionsCheckButtonTemplate")
+    chatUnlock:SetPoint("TOPLEFT", chatTitle, "BOTTOMLEFT", 0, -12)
+    chatUnlock.Text:SetText("Unlock Chat Entry Box (Hold SHIFT to Drag)")
+    chatUnlock:SetChecked(addon.db.chatEditBoxUnlock)
+    chatUnlock:SetScript("OnClick", function(self)
+        addon.db.chatEditBoxUnlock = self:GetChecked()
+        addon:SetChatEditBoxUnlock(addon.db.chatEditBoxUnlock)
+    end)
+
+    -- Disable Borders
+    local borderCheckbox = CreateFrame("CheckButton", nil, chatPanel, "InterfaceOptionsCheckButtonTemplate")
+    borderCheckbox:SetPoint("TOPLEFT", chatUnlock, "BOTTOMLEFT", 0, -12)
+    borderCheckbox.Text:SetText("Hide Default Borders")
+    borderCheckbox:SetChecked(addon.db.chatEditBoxHideBorder)
+    borderCheckbox:SetScript("OnClick", function(self)
+        addon.db.chatEditBoxHideBorder = self:GetChecked()
+        addon:UpdateChatEditBox()
+    end)
+    
+    -- Width Slider
+    local widthSlider = CreateFrame("Slider", nil, chatPanel, "OptionsSliderTemplate")
+    widthSlider:SetPoint("TOPLEFT", borderCheckbox, "BOTTOMLEFT", 6, -30)
+    widthSlider:SetMinMaxValues(200, 1000)
+    widthSlider:SetValue(addon.db.chatEditBoxWidth or 450)
+    widthSlider:SetValueStep(10)
+    widthSlider:SetObeyStepOnDrag(true)
+    widthSlider:SetWidth(400)
+    widthSlider.Low:SetText("200")
+    widthSlider.High:SetText("1000")
+    widthSlider.Text:SetText(string.format("Width: %d", addon.db.chatEditBoxWidth or 450))
+    widthSlider:SetScript("OnValueChanged", function(self, value)
+        value = math.floor(value)
+        self.Text:SetText(string.format("Width: %d", value))
+        addon.db.chatEditBoxWidth = value
+        addon:UpdateChatEditBox()
+    end)
+    
+    -- Anchor Dropdown
+    local anchorLabel = chatPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    anchorLabel:SetPoint("TOPLEFT", widthSlider, "BOTTOMLEFT", 0, -20)
+    anchorLabel:SetText("Resize Anchor (Determines growth direction):")
+
+    local anchorDropdown = CreateFrame("Frame", "GarageUIChatAnchorDropdown", chatPanel, "UIDropDownMenuTemplate")
+    anchorDropdown:SetPoint("TOPLEFT", anchorLabel, "BOTTOMLEFT", -16, -5)
+    
+    local function UpdateAnchor(val)
+        addon.db.chatEditBoxAnchor = val
+        UIDropDownMenu_SetText(anchorDropdown, val)
+        addon:UpdateChatEditBox()
+    end
+
+    UIDropDownMenu_Initialize(anchorDropdown, function(self, level, menuList)
+        local selected = addon.db.chatEditBoxAnchor or "CENTER"
+        local anchors = {"LEFT", "CENTER", "RIGHT"}
+        for _, anchor in ipairs(anchors) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = anchor
+            info.value = anchor
+            info.func = function(b) 
+                UpdateAnchor(b.value) 
+                UIDropDownMenu_SetSelectedValue(anchorDropdown, b.value)
+            end
+            info.checked = (selected == anchor)
+            UIDropDownMenu_AddButton(info)
+        end
+    end)
+    
+    UIDropDownMenu_SetText(anchorDropdown, addon.db.chatEditBoxAnchor or "CENTER")
+    UIDropDownMenu_SetWidth(anchorDropdown, 120)
+
+
+    -- ====================
+    -- SPEED PANEL TAB
+    -- ====================
+    local speedPanel, speedTitle = CreateSection(tabSpeed, "Speed Panel", "Displays your current movement speed.", 280)
+    
     local speedCheckbox = CreateFrame("CheckButton", nil, speedPanel, "InterfaceOptionsCheckButtonTemplate")
     speedCheckbox:SetPoint("TOPLEFT", speedTitle, "BOTTOMLEFT", 0, -12)
     speedCheckbox.Text:SetText("Enable Speed Panel")
@@ -200,228 +323,176 @@ function addon:CreateSettingsPanel()
     lockCheckbox.Text:SetText("Lock Panel Position")
     lockCheckbox:SetChecked(addon.db.speedPanelLocked)
 
+    local debugCheckbox = CreateFrame("CheckButton", nil, speedPanel, "InterfaceOptionsCheckButtonTemplate")
+    debugCheckbox:SetPoint("LEFT", speedCheckbox, "RIGHT", 150, 0)
+    debugCheckbox.Text:SetText("Debug Mode")
+    debugCheckbox:SetChecked(addon.db.speedPanelDebug or false)
+
     local resetButton = CreateFrame("Button", nil, speedPanel, "UIPanelButtonTemplate")
-    resetButton:SetSize(110, 22)
-    resetButton:SetPoint("TOPLEFT", lockCheckbox, "BOTTOMLEFT", 0, -12)
+    resetButton:SetPoint("TOPLEFT", lockCheckbox, "BOTTOMLEFT", 0, -16)
+    resetButton:SetSize(120, 22)
     resetButton:SetText("Reset Position")
-
-    local fontLabel = speedPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    fontLabel:SetPoint("TOPLEFT", resetButton, "BOTTOMLEFT", 0, -18)
-    fontLabel:SetText("Font")
-
-    local fontDropdown = CreateFrame("Frame", "GarageUITweaksSpeedFontDropdown", speedPanel, "UIDropDownMenuTemplate")
-    fontDropdown:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", -16, -4)
-    UIDropDownMenu_SetWidth(fontDropdown, 180)
-
-    local backgroundLabel = speedPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    backgroundLabel:SetPoint("TOPLEFT", fontDropdown, "BOTTOMLEFT", 16, -18)
-    backgroundLabel:SetText("Background")
-
-    local backgroundDropdown = CreateFrame("Frame", "GarageUITweaksSpeedBackgroundDropdown", speedPanel, "UIDropDownMenuTemplate")
-    backgroundDropdown:SetPoint("TOPLEFT", backgroundLabel, "BOTTOMLEFT", -16, -4)
-    UIDropDownMenu_SetWidth(backgroundDropdown, 180)
-
-    local borderLabel = speedPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    borderLabel:SetPoint("TOPLEFT", backgroundDropdown, "BOTTOMLEFT", 16, -18)
-    borderLabel:SetText("Border")
-
-    local borderDropdown = CreateFrame("Frame", "GarageUITweaksSpeedBorderDropdown", speedPanel, "UIDropDownMenuTemplate")
-    borderDropdown:SetPoint("TOPLEFT", borderLabel, "BOTTOMLEFT", -16, -4)
-    UIDropDownMenu_SetWidth(borderDropdown, 180)
-
+    
     local speedInfo = speedPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    speedInfo:SetPoint("TOPLEFT", borderDropdown, "BOTTOMLEFT", 16, -18)
-    speedInfo:SetPoint("RIGHT", speedPanel, "RIGHT", -12, 0)
+    speedInfo:SetPoint("TOPLEFT", resetButton, "BOTTOMLEFT", 0, -16)
+    speedInfo:SetWidth(300)
     speedInfo:SetJustifyH("LEFT")
-    speedInfo:SetText("Uses Blizzard speed data when available and a lightweight 0.25s fallback while flying, so you can monitor dragonriding speeds without jitter.")
+    speedInfo:SetText("Use /speedpanel to toggle options from chat.\nDrag the panel to move it when unlocked.")
 
-    local function RefreshSpeedPanelDropdowns()
-        local fontKey = addon.db.speedPanelFontKey or (addon:GetSpeedPanelFontOptions()[1] and addon:GetSpeedPanelFontOptions()[1].key)
-        UIDropDownMenu_SetSelectedValue(fontDropdown, fontKey)
-        UIDropDownMenu_SetText(fontDropdown, addon:GetSpeedPanelFontName(fontKey))
-
-        local backgroundKey = addon.db.speedPanelBackgroundKey or (addon:GetSpeedPanelBackgroundOptions()[1] and addon:GetSpeedPanelBackgroundOptions()[1].key)
-        UIDropDownMenu_SetSelectedValue(backgroundDropdown, backgroundKey)
-        UIDropDownMenu_SetText(backgroundDropdown, addon:GetSpeedPanelBackgroundName(backgroundKey))
-
-        local borderKey = addon.db.speedPanelBorderKey or (addon:GetSpeedPanelBorderOptions()[1] and addon:GetSpeedPanelBorderOptions()[1].key)
-        UIDropDownMenu_SetSelectedValue(borderDropdown, borderKey)
-        UIDropDownMenu_SetText(borderDropdown, addon:GetSpeedPanelBorderName(borderKey))
-    end
-
-    UIDropDownMenu_Initialize(fontDropdown, function(self, level)
-        if not level then
-            return
-        end
-        local selected = addon.db.speedPanelFontKey or (addon:GetSpeedPanelFontOptions()[1] and addon:GetSpeedPanelFontOptions()[1].key)
-        for _, option in ipairs(addon:GetSpeedPanelFontOptions()) do
-            local info = UIDropDownMenu_CreateInfo()
-            local key = option.key
-            info.text = option.name
-            info.value = key
-            info.checked = key == selected
-            info.func = function()
-                addon:SetSpeedPanelFont(key)
-                RefreshSpeedPanelDropdowns()
-                CloseDropDownMenus()
-            end
-            UIDropDownMenu_AddButton(info, level)
-        end
-    end)
-
-    UIDropDownMenu_Initialize(backgroundDropdown, function(self, level)
-        if not level then
-            return
-        end
-        local selected = addon.db.speedPanelBackgroundKey or (addon:GetSpeedPanelBackgroundOptions()[1] and addon:GetSpeedPanelBackgroundOptions()[1].key)
-        for _, option in ipairs(addon:GetSpeedPanelBackgroundOptions()) do
-            local info = UIDropDownMenu_CreateInfo()
-            local key = option.key
-            info.text = option.name
-            info.value = key
-            info.checked = key == selected
-            info.func = function()
-                addon:SetSpeedPanelBackground(key)
-                RefreshSpeedPanelDropdowns()
-                CloseDropDownMenus()
-            end
-            UIDropDownMenu_AddButton(info, level)
-        end
-    end)
-
-    UIDropDownMenu_Initialize(borderDropdown, function(self, level)
-        if not level then
-            return
-        end
-        local selected = addon.db.speedPanelBorderKey or (addon:GetSpeedPanelBorderOptions()[1] and addon:GetSpeedPanelBorderOptions()[1].key)
-        for _, option in ipairs(addon:GetSpeedPanelBorderOptions()) do
-            local info = UIDropDownMenu_CreateInfo()
-            local key = option.key
-            info.text = option.name
-            info.value = key
-            info.checked = key == selected
-            info.func = function()
-                addon:SetSpeedPanelBorder(key)
-                RefreshSpeedPanelDropdowns()
-                CloseDropDownMenus()
-            end
-            UIDropDownMenu_AddButton(info, level)
-        end
-    end)
-
-    local function UpdateSpeedPanelControls()
+    -- Speed Panel Logic
+    local function UpdateSpeedControls()
         local enabled = addon.db.speedPanelEnabled
-        lockCheckbox:SetChecked(addon.db.speedPanelLocked)
-        lockCheckbox:SetEnabled(enabled)
+        lockCheckbox:Enable()
         resetButton:SetEnabled(enabled)
         if enabled then
-            lockCheckbox.Text:SetTextColor(1, 1, 1)
-            fontLabel:SetTextColor(1, 1, 1)
-            backgroundLabel:SetTextColor(1, 1, 1)
-            borderLabel:SetTextColor(1, 1, 1)
-            if UIDropDownMenu_EnableDropDown then
-                UIDropDownMenu_EnableDropDown(fontDropdown)
-                UIDropDownMenu_EnableDropDown(backgroundDropdown)
-                UIDropDownMenu_EnableDropDown(borderDropdown)
-            end
+             lockCheckbox.Text:SetTextColor(1, 1, 1)
         else
-            lockCheckbox.Text:SetTextColor(0.5, 0.5, 0.5)
-            fontLabel:SetTextColor(0.5, 0.5, 0.5)
-            backgroundLabel:SetTextColor(0.5, 0.5, 0.5)
-            borderLabel:SetTextColor(0.5, 0.5, 0.5)
-            if UIDropDownMenu_DisableDropDown then
-                UIDropDownMenu_DisableDropDown(fontDropdown)
-                UIDropDownMenu_DisableDropDown(backgroundDropdown)
-                UIDropDownMenu_DisableDropDown(borderDropdown)
-            end
+             lockCheckbox:SetChecked(true) -- Always lock when disabled visually
+             lockCheckbox:Disable()
+             lockCheckbox.Text:SetTextColor(0.5, 0.5, 0.5)
         end
-        RefreshSpeedPanelDropdowns()
     end
-
+    
     speedCheckbox:SetScript("OnClick", function(self)
         addon.db.speedPanelEnabled = self:GetChecked()
         addon:SetSpeedPanelEnabled(addon.db.speedPanelEnabled)
-        UpdateSpeedPanelControls()
+        UpdateSpeedControls()
     end)
-
+    
     lockCheckbox:SetScript("OnClick", function(self)
         addon.db.speedPanelLocked = self:GetChecked()
-        addon:RefreshSpeedPanelLock()
-        UpdateSpeedPanelControls()
+        if addon.SpeedPanel then addon.SpeedPanel:EnableMouse(not addon.db.speedPanelLocked) end
     end)
 
-    resetButton:SetScript("OnClick", function()
-        addon:ResetSpeedPanelPosition()
+    debugCheckbox:SetScript("OnClick", function(self)
+        addon.db.speedPanelDebug = self:GetChecked()
+        if addon.SpeedPanel then addon.SpeedPanel:SetDebug(addon.db.speedPanelDebug) end
     end)
 
-    UpdateSpeedPanelControls()
-    ResizeSection(speedPanel, speedInfo, 260)
+    resetButton:SetScript("OnClick", function() addon:ResetSpeedPanelPosition() end)
+    UpdateSpeedControls()
 
-    -- Personal Resource Display Tweak
-    local prdPanel, prdTitle = CreateSection("Personal Resource Display", "Manage the visibility of the Personal Resource Display (health/mana bar under your character).", 80)
+    -- ====================
+    -- PRD TAB
+    -- ====================
+    local prdPanel, prdTitle = CreateSection(tabPRD, "Personal Resource Display", "Manage appearance of the Personal Resource Display (PRD).", 200)
 
-    local prdCombatCheckbox = CreateFrame("CheckButton", nil, prdPanel, "InterfaceOptionsCheckButtonTemplate")
-    prdCombatCheckbox:SetPoint("TOPLEFT", prdTitle, "BOTTOMLEFT", 0, -12)
-    prdCombatCheckbox.Text:SetText("Show Only in Combat")
-    prdCombatCheckbox:SetChecked(addon.db.personalResourceDisplayCombatOnly)
-    prdCombatCheckbox:SetScript("OnClick", function(self)
-        addon.db.personalResourceDisplayCombatOnly = self:GetChecked()
-        addon:SetPersonalResourceDisplayCombatOnly(addon.db.personalResourceDisplayCombatOnly)
+    -- Visibility Options
+    local enemyTargetCheck = CreateFrame("CheckButton", nil, prdPanel, "InterfaceOptionsCheckButtonTemplate")
+    enemyTargetCheck:SetPoint("TOPLEFT", prdTitle, "BOTTOMLEFT", 0, -12)
+    enemyTargetCheck.Text:SetText("Show when Enemy Target Selected")
+    enemyTargetCheck:SetChecked(addon.db.prdShowWithTargetEnemy)
+    enemyTargetCheck:SetScript("OnClick", function(self)
+        addon.db.prdShowWithTargetEnemy = self:GetChecked()
+        addon:SetPRDVisibilityOptions()
     end)
 
-    ResizeSection(prdPanel, prdCombatCheckbox, 80)
+    local friendlyTargetCheck = CreateFrame("CheckButton", nil, prdPanel, "InterfaceOptionsCheckButtonTemplate")
+    friendlyTargetCheck:SetPoint("TOPLEFT", enemyTargetCheck, "BOTTOMLEFT", 0, -8)
+    friendlyTargetCheck.Text:SetText("Show when Friendly Target Selected")
+    friendlyTargetCheck:SetChecked(addon.db.prdShowWithTargetFriendly)
+    friendlyTargetCheck:SetScript("OnClick", function(self)
+        addon.db.prdShowWithTargetFriendly = self:GetChecked()
+        addon:SetPRDVisibilityOptions()
+    end)
 
-    scrollChild:SetHeight(math.max(totalHeight, 1))
+    -- Texture Selection
+    local textureLabel = prdPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    textureLabel:SetPoint("TOPLEFT", friendlyTargetCheck, "BOTTOMLEFT", 6, -20)
+    textureLabel:SetText("Status Bar Texture:")
+
+    -- Texture Dropdown (using LibSharedMedia or fallback)
+    local textureDropdown = CreateFrame("Frame", "GarageUITweaksPRDTextureDropdown", prdPanel, "UIDropDownMenuTemplate")
+    textureDropdown:SetPoint("TOPLEFT", textureLabel, "BOTTOMLEFT", -16, -2)
     
+    local function UpdateTexture(val)
+        addon.db.prdTexture = val
+        addon:SetPRDTexture(val)
+        UIDropDownMenu_SetText(textureDropdown, val:match("([^\\]+)$") or val) -- Try to show filename
+    end
+
+    UIDropDownMenu_Initialize(textureDropdown, function(self, level, menuList)
+        local selected = addon.db.prdTexture or "Interface\\TargetingFrame\\UI-TargetingFrame-BarFill"
+        
+        -- Default/Blizzard Option
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = "Blizzard Default"
+        info.value = "Interface\\TargetingFrame\\UI-TargetingFrame-BarFill"
+        info.func = function(b) 
+            UpdateTexture(b.value) 
+            UIDropDownMenu_SetSelectedValue(textureDropdown, b.value)
+        end
+        info.checked = (selected == info.value)
+        UIDropDownMenu_AddButton(info)
+
+        -- LibSharedMedia Options
+        if LSM then
+             local textures = LSM:HashTable("statusbar")
+             local keys = {}
+             for k in pairs(textures) do table.insert(keys, k) end
+             table.sort(keys)
+
+             for _, k in ipairs(keys) do
+                 local path = textures[k]
+                 info = UIDropDownMenu_CreateInfo()
+                 info.text = k
+                 info.value = path
+                 info.func = function(b) 
+                    UpdateTexture(b.value) 
+                    UIDropDownMenu_SetSelectedValue(textureDropdown, b.value)
+                end
+                 info.checked = (selected == path)
+                 UIDropDownMenu_AddButton(info)
+             end
+        end
+    end)
+    
+    -- Set Initial Text
+    local currentTex = addon.db.prdTexture or "Interface\\TargetingFrame\\UI-TargetingFrame-BarFill"
+    -- Try to find friendly name
+    local friendlyName = "Custom/Unknown"
+    if currentTex == "Interface\\TargetingFrame\\UI-TargetingFrame-BarFill" then friendlyName = "Blizzard Default" end
+    if LSM then
+        for name, path in pairs(LSM:HashTable("statusbar")) do
+            if path == currentTex then friendlyName = name break end
+        end
+    end
+    UIDropDownMenu_SetText(textureDropdown, friendlyName)
+    UIDropDownMenu_SetWidth(textureDropdown, 180)
+
+
+    -- Initialization
+    ShowTab("general")
+
     -- Add to Interface Options
     if Settings and Settings.RegisterCanvasLayoutCategory then
-        -- Modern settings system (Dragonflight+)
         local category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
         Settings.RegisterAddOnCategory(category)
         addon.settingsCategory = category
     else
-        -- Legacy settings system
         InterfaceOptions_AddCategory(panel)
     end
-    
     addon.settingsPanel = panel
 end
 
--- Open settings panel
+-- Open settings panel (Helper)
 function addon:OpenSettings()
-    if not self.settingsPanel then
-        self:CreateSettingsPanel()
-    end
-
+    if not self.settingsPanel then self:CreateSettingsPanel() end
     if Settings and Settings.OpenToCategory then
-        -- Modern settings system (Dragonflight+)
-        local categoryID
-        if self.settingsCategory and self.settingsCategory.GetID then
-            categoryID = self.settingsCategory:GetID()
-        end
-
-        if not categoryID then
-            local category = Settings.GetCategory("Garage UI Tweaks")
-            if category and category.GetID then
-                categoryID = category:GetID()
-            end
-        end
-
-        Settings.OpenToCategory(categoryID or "Garage UI Tweaks")
+        local id = self.settingsCategory and self.settingsCategory:GetID()
+        if not id then id = Settings.GetCategory("Garage UI Tweaks"):GetID() end
+        Settings.OpenToCategory(id)
     elseif InterfaceOptionsFrame_OpenToCategory then
-        -- Legacy settings system - call twice to ensure it opens to correct panel
         InterfaceOptionsFrame_OpenToCategory(self.settingsPanel)
         InterfaceOptionsFrame_OpenToCategory(self.settingsPanel)
-    else
-        print("|cffff0000GUIT:|r Could not open settings panel")
     end
 end
 
--- Initialize settings on PLAYER_LOGIN
-local frame = CreateFrame("Frame")
-frame:RegisterEvent("PLAYER_LOGIN")
-frame:SetScript("OnEvent", function(self, event)
+-- Initialize on Login
+local f = CreateFrame("Frame")
+f:RegisterEvent("PLAYER_LOGIN")
+f:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_LOGIN" then
-        addon:CreateSettingsPanel()
+         addon:CreateSettingsPanel()
     end
 end)
