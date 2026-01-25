@@ -270,50 +270,12 @@ function addon:DebugSpeedPanel(current, baseline, runSpeed, flightSpeed, swimSpe
     DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff00ff00GUIT Speed Debug|r current=%.2f run=%.2f flight=%.2f swim=%.2f baseline=%.2f fallback=%.2f", current or 0, runSpeed or 0, flightSpeed or 0, swimSpeed or 0, baseline or 0, fallback or 0))
 end
 
-local function applySpeedPanelPosition(frame)
-    if not frame then
-        return
-    end
-
-    frame:ClearAllPoints()
-
-    local pos = addon.db and addon.db.speedPanelPosition
-    if pos and pos.point then
-        local relative = UIParent
-        if pos.relative and _G[pos.relative] then
-            relative = _G[pos.relative]
-        end
-        frame:SetPoint(pos.point, relative, pos.relativePoint or pos.point, pos.x or 0, pos.y or 0)
-    else
-        frame:SetPoint("CENTER", UIParent, "CENTER", 0, -200)
-    end
-end
-
-local function saveSpeedPanelPosition(frame)
-    if not addon.db then
-        return
-    end
-
-    local point, relativeTo, relativePoint, xOfs, yOfs = frame:GetPoint()
-    if not point then
-        return
-    end
-
-    addon.db.speedPanelPosition = {
-        point = point,
-        relative = relativeTo and relativeTo:GetName() or nil,
-        relativePoint = relativePoint,
-        x = xOfs,
-        y = yOfs,
-    }
-end
-
 function addon:ApplySpeedPanelPosition()
     if not self.speedPanel then
         return
     end
 
-    applySpeedPanelPosition(self.speedPanel)
+    addon:RestoreFramePosition(self.speedPanel, "speedPanelPosition", {"CENTER", UIParent, "CENTER", 0, -200})
 end
 
 local function updateSpeedPanelText(frame, force)
@@ -420,7 +382,7 @@ local function ensureSpeedPanel()
     end)
     frame:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
-        saveSpeedPanelPosition(self)
+        addon:SaveFramePosition(self, "speedPanelPosition")
     end)
 
     local text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
@@ -457,7 +419,7 @@ local function ensureSpeedPanel()
     frame:Hide()
 
     addon.speedPanel = frame
-    applySpeedPanelPosition(frame)
+    addon:ApplySpeedPanelPosition()
     applySpeedPanelAppearance(frame)
     updateSpeedPanelText(frame, true)
     return frame
@@ -474,7 +436,7 @@ function addon:SetSpeedPanelEnabled(enabled)
             return
         end
 
-        applySpeedPanelPosition(frame)
+        addon:ApplySpeedPanelPosition()
         addon:ApplySpeedPanelAppearance()
         frame.elapsed = 0
         frame:SetScript("OnUpdate", speedPanelOnUpdate)
@@ -517,7 +479,7 @@ function addon:ResetSpeedPanelPosition()
     self.db.speedPanelPosition = nil
 
     if self.speedPanel then
-        applySpeedPanelPosition(self.speedPanel)
+        addon:ApplySpeedPanelPosition()
         if self.speedPanel:IsShown() then
             updateSpeedPanelText(self.speedPanel, true)
         end

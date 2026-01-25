@@ -10,7 +10,7 @@ function addon:ApplyTweaks()
     self:SetErrorTextBackground(self.db.errorTextBackgroundEnabled, self.db.errorTextBackgroundAlpha, self.db.errorTextBackgroundDuration)
     self:SetBattlegroundMapScale(self.db.battlegroundMapScale)
     self:SetSpeedPanelEnabled(self.db.speedPanelEnabled)
-    self:SetPRDTexture(self.db.prdTexture)
+    self:UpdatePRDTextures()
     self:SetPRDVisibilityOptions()
     self:InitChatTweaks()
 end

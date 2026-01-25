@@ -5,17 +5,6 @@ local addonName, addon = ...
 local editBox = ChatFrame1EditBox
 local hookInstalled = false
 
-local function SavePosition()
-    local point, relativeTo, relativePoint, xOfs, yOfs = editBox:GetPoint()
-    addon.db.chatEditBoxPosition = {
-        point = point,
-        relativePoint = relativePoint,
-        xOfs = xOfs,
-        yOfs = yOfs,
-        -- width = editBox:GetWidth() -- Width is now managed by separate setting mostly
-    }
-end
-
 -- Recalculate position to match the desired scaling anchor
 local function EnforceAnchor(anchor)
     if not anchor then anchor = "CENTER" end
@@ -31,32 +20,22 @@ local function EnforceAnchor(anchor)
     
     if anchor == "LEFT" then
         -- Keep Left edge same
-        -- New X is x
-        -- New Y is y (top)
-        -- SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x, y)
         editBox:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x, y)
     elseif anchor == "RIGHT" then
         -- Keep Right edge same
-        -- Right = x + w
         editBox:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", x + w, y)
     else -- CENTER
         -- Keep Center same
-        -- Center X = x + w/2
-        -- Center Y = y - h/2
         editBox:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x + w/2, y - h/2)
     end
     
-    SavePosition()
+    addon:SaveFramePosition(editBox, "chatEditBoxPosition")
 end
 
 local function UpdateVisuals()
     -- Restore Position first if needed
-    if addon.db.chatEditBoxPosition then
-        local pos = addon.db.chatEditBoxPosition
-        editBox:ClearAllPoints()
-        editBox:SetPoint(pos.point, UIParent, pos.relativePoint, pos.xOfs, pos.yOfs)
-        editBox:SetUserPlaced(true)
-    end
+    addon:RestoreFramePosition(editBox, "chatEditBoxPosition")
+    editBox:SetUserPlaced(true)
     
     -- Apply Border
     local hide = addon.db.chatEditBoxHideBorder
@@ -106,7 +85,7 @@ function addon:InitChatTweaks()
             if addon.db.chatEditBoxAnchor then
                  EnforceAnchor(addon.db.chatEditBoxAnchor)
             else
-                 SavePosition()
+                 addon:SaveFramePosition(self, "chatEditBoxPosition")
             end
         end
     end)

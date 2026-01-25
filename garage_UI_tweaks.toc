@@ -6,6 +6,7 @@
 ## SavedVariables: GarageUITweaksDB
 
 Core.lua
+Utils.lua
 ErrorTextBackground.lua
 BattlegroundMap.lua
 SpeedPanel.lua
