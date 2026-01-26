@@ -62,6 +62,7 @@ end
 function addon:InitChatTweaks()
     if hookInstalled then 
         UpdateVisuals()
+        addon:UpdateChatButtonBackgrounds()
         return 
     end
     
@@ -90,8 +91,113 @@ function addon:InitChatTweaks()
         end
     end)
     
+    -- Hook OnShow for Chat Buttons to ensure they stay hidden if disabled
+    if ChatFrameMenuButton then
+        ChatFrameMenuButton:HookScript("OnShow", function(self)
+            if addon.db.hideChatFrameMenuButton then
+                self:Hide()
+            end
+        end)
+    end
+
+    if ChatFrameChannelButton then
+        ChatFrameChannelButton:HookScript("OnShow", function(self)
+            if addon.db.hideChatFrameChannelButton then
+                self:Hide()
+            end
+        end)
+    end
+
     hookInstalled = true
     UpdateVisuals()
+    addon:UpdateChatButtonBackgrounds()
+end
+
+function addon:UpdateChatButtonBackgrounds()
+    for i = 1, NUM_CHAT_WINDOWS do
+        -- Hide the background texture
+        local background = _G["ChatFrame" .. i .. "ButtonFrameBackground"]
+        if background then
+            if addon.db.hideChatButtonFrameBackground then
+                background:Hide()
+            else
+                background:Show()
+            end
+        end
+        
+        -- Hide the border textures (Top, Bottom, Left, Right, Middle if exists)
+        -- Assuming standard naming convention for some frames or backdrop
+        local btnFrame = _G["ChatFrame" .. i .. "ButtonFrame"]
+        if btnFrame then
+            local textures = {
+                _G[btnFrame:GetName() .. "Top"],
+                _G[btnFrame:GetName() .. "Bottom"],
+                _G[btnFrame:GetName() .. "Left"],
+                _G[btnFrame:GetName() .. "Right"],
+                _G[btnFrame:GetName() .. "Middle"], 
+                _G[btnFrame:GetName() .. "TopLeft"],
+                _G[btnFrame:GetName() .. "TopRight"],
+                _G[btnFrame:GetName() .. "BottomLeft"],
+                _G[btnFrame:GetName() .. "BottomRight"],
+                _G[btnFrame:GetName() .. "TopTexture"],
+                _G[btnFrame:GetName() .. "BottomTexture"],
+                _G[btnFrame:GetName() .. "LeftTexture"],
+                _G[btnFrame:GetName() .. "RightTexture"],
+                _G[btnFrame:GetName() .. "MiddleTexture"], 
+                _G[btnFrame:GetName() .. "TopLeftTexture"],
+                _G[btnFrame:GetName() .. "TopRightTexture"],
+                _G[btnFrame:GetName() .. "BottomLeftTexture"],
+                _G[btnFrame:GetName() .. "BottomRightTexture"],
+            }
+            
+            for _, tex in pairs(textures) do
+                if addon.db.hideChatButtonFrameBackground then
+                    tex:Hide()
+                else
+                    tex:Show()
+                end
+            end
+            
+            -- If it uses Backdrops
+            if btnFrame.GetBackdrop and btnFrame:GetBackdrop() then
+                 if addon.db.hideChatButtonFrameBackground then
+                     btnFrame:SetBackdropBorderColor(0,0,0,0)
+                     btnFrame:SetBackdropColor(0,0,0,0)
+                 else
+                     -- Can't easily restore original without storing it, but usually standard
+                     btnFrame:SetBackdropBorderColor(1,1,1,1)
+                     btnFrame:SetBackdropColor(0,0,0,0.5) 
+                 end
+            end
+        end
+
+        -- Hide the minimize button
+        local minimize = _G["ChatFrame" .. i .. "ButtonFrameMinimizeButton"]
+        if minimize then
+            if addon.db.hideChatButtonFrameBackground then
+                minimize:Hide()
+            else
+                minimize:Show()
+            end
+        end
+    end
+    
+    -- Main Chat Frame Buttons
+    if ChatFrameMenuButton then
+        if addon.db.hideChatFrameMenuButton then
+            ChatFrameMenuButton:Hide()
+        else
+            ChatFrameMenuButton:Show()
+        end
+    end
+    
+    if ChatFrameChannelButton then
+        if addon.db.hideChatFrameChannelButton then
+            ChatFrameChannelButton:Hide()
+        else
+            ChatFrameChannelButton:Show()
+        end
+    end
 end
 
 -- Listener for UI updates that might reset the anchor

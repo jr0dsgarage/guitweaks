@@ -107,9 +107,14 @@ local function ApplyTexSimple(frame, texture, isAtlas, backgroundTexture, isBgAt
             if isAtlas then
                 frame:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8") 
                 local t = frame:GetStatusBarTexture()
-                if t then t:SetAtlas(texture) end
+                if t then 
+                    t:SetAtlas(texture) 
+                    t:SetAlpha(1) -- Ensure opacity
+                end
             else
                 frame:SetStatusBarTexture(texture)
+                local t = frame:GetStatusBarTexture()
+                if t then t:SetAlpha(1) end
             end
         elseif frame.SetTexture then
              -- Fallback for simple texture regions
@@ -374,7 +379,51 @@ local function ApplyCustomTextures()
     -- 1. Standard NamePlate UnitFrame (Target/Self)
     if plate and plate.UnitFrame then
         local healthBar = plate.UnitFrame.healthBar or plate.UnitFrame.HealthBar
-        if healthBar then ApplyTexSimple(healthBar, texHealth, isHealthAtlas, bgHealth, isBgHealthAtlas, colHealth, sparkHealth, isSparkHealthAtlas) end
+        if healthBar then 
+            ApplyTexSimple(healthBar, texHealth, isHealthAtlas, bgHealth, isBgHealthAtlas, colHealth, sparkHealth, isSparkHealthAtlas)
+            
+            -- Apply Texture & Color Hooks if this is safely identifiable as a Status Bar
+            if healthBar.IsObjectType and healthBar:IsObjectType("StatusBar") and not healthBar.GarageHooked then
+                 hooksecurefunc(healthBar, "SetStatusBarTexture", function(self, tex)
+                     if self.applyingGarageTex then return end
+                     -- We rely on ApplyCustomTextures to govern policy, but inside the hook 
+                     -- we must re-resolve basics to avoid race conditions.
+                     local input = addon.db.prdMatchHealth and "::BlizzPlayer::" or addon.db.prdTextureHealth
+                     local rTex, rIsAtlas = ResolveTexture(input, "Health")
+                     
+                     self.applyingGarageTex = true
+                     if rIsAtlas then
+                          self:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+                          local t = self:GetStatusBarTexture()
+                          if t then 
+                              t:SetAtlas(rTex)
+                              t:SetAlpha(1)
+                          end
+                     else
+                          self:SetStatusBarTexture(rTex)
+                          local t = self:GetStatusBarTexture()
+                          if t then t:SetAlpha(1) end
+                     end
+                     self.applyingGarageTex = false
+                 end)
+
+                 hooksecurefunc(healthBar, "SetStatusBarColor", function(self, r, g, b)
+                      if self.applyingGarageColor then return end
+                      
+                      local input = addon.db.prdMatchHealth and "::BlizzPlayer::" or addon.db.prdTextureHealth
+                      local _, rIsAtlas = ResolveTexture(input, "Health")
+                      
+                      -- Prevent Double Tinting on Health Bar (common if using Class Color textures)
+                      if rIsAtlas and (r < 0.99 or g < 0.99 or b < 0.99) then
+                          self.applyingGarageColor = true
+                          self:SetStatusBarColor(1, 1, 1)
+                          self.applyingGarageColor = false
+                      end
+                 end)
+                 
+                 healthBar.GarageHooked = true
+            end
+        end
     end
 
     -- 2. Direct PRD Frame Access
@@ -408,12 +457,31 @@ local function ApplyCustomTextures()
                      if rIsAtlas then
                          self:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
                          local t = self:GetStatusBarTexture()
-                         if t then t:SetAtlas(rTex) end
+                         if t then 
+                             t:SetAtlas(rTex) 
+                             t:SetAlpha(1)
+                         end
                      else
                          self:SetStatusBarTexture(rTex)
+                         local t = self:GetStatusBarTexture()
+                         if t then t:SetAlpha(1) end
                      end
                      self.applyingGarageTex = false
                  end)
+
+                 hooksecurefunc(pb, "SetStatusBarColor", function(self, r, g, b)
+                      if self.applyingGarageColor then return end
+                      
+                      local input = addon.db.prdMatchPower and "::BlizzPlayer::" or addon.db.prdTexturePower
+                      local _, rIsAtlas = ResolveTexture(input, "Power")
+                      
+                      if rIsAtlas and (r < 0.99 or g < 0.99 or b < 0.99) then
+                          self.applyingGarageColor = true
+                          self:SetStatusBarColor(1, 1, 1)
+                          self.applyingGarageColor = false
+                      end
+                 end)
+
                  pb.GarageHooked = true
             end
         end
@@ -443,12 +511,35 @@ local function ApplyCustomTextures()
                       if rIsAtlas then
                           self:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
                           local t = self:GetStatusBarTexture()
-                          if t then t:SetAtlas(rTex) end
+                          if t then 
+                              t:SetAtlas(rTex) 
+                              t:SetAlpha(1)
+                          end
                       else
                           self:SetStatusBarTexture(rTex)
+                          local t = self:GetStatusBarTexture()
+                          if t then t:SetAlpha(1) end
                       end
                       self.applyingGarageTex = false
                   end)
+
+                  -- Prevent Double Tinting on Atlas Textures
+                  -- Standard UI logic tints the bar (e.g., Purple for Soul Shards), but modern Atlas assets 
+                  -- are often pre-colored. Tinting them makes them dark/muddy compared to PlayerFrame.
+                  hooksecurefunc(apb, "SetStatusBarColor", function(self, r, g, b)
+                       if self.applyingGarageColor then return end
+                       
+                       local input = addon.db.prdMatchAlternate and "::BlizzPlayer::" or addon.db.prdTextureAlternate
+                       local _, rIsAtlas = ResolveTexture(input, "Alternate")
+                       
+                       -- Only force native color (White) if we are using an Atlas and the game is trying to tint it
+                       if rIsAtlas and (r < 0.99 or g < 0.99 or b < 0.99) then
+                           self.applyingGarageColor = true
+                           self:SetStatusBarColor(1, 1, 1)
+                           self.applyingGarageColor = false
+                       end
+                  end)
+
                   apb.GarageHooked = true
              end
         end

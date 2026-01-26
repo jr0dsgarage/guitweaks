@@ -41,6 +41,9 @@ local defaults = {
         chatEditBoxWidth = 450,
         chatEditBoxAnchor = "CENTER",
         chatEditBoxHideBorder = false,
+        hideChatButtonFrameBackground = false,
+        hideChatFrameMenuButton = false,
+        hideChatFrameChannelButton = false,
         prdShowWithTargetEnemy = false,
         prdShowWithTargetFriendly = false,
     }

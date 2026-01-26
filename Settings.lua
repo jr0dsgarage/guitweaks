@@ -113,10 +113,10 @@ function addon:CreateSettingsPanel()
     end
 
     -- Tab Definitions
-    local tabGeneral = CreateTabButton("general", "General", 1)
-    local tabChat = CreateTabButton("chat", "Chat Box", 2)
-    local tabSpeed = CreateTabButton("speed", "Speed Panel", 3)
-    local tabPRD = CreateTabButton("prd", "PRD", 4)
+    local tabGeneral = CreateTabButton("general", "General Tweaks", 1)
+    local tabChat = CreateTabButton("chat", "Chat Tweaks", 2)
+    local tabSpeed = CreateTabButton("speed", "Speed Tweaks", 3)
+    local tabPRD = CreateTabButton("prd", "PRD Tweaks", 4)
 
     -- Helper to add sections to a tab
     local function CreateSection(tab, titleText, descriptionText, height)
@@ -308,6 +308,36 @@ function addon:CreateSettingsPanel()
     
     UIDropDownMenu_SetText(anchorDropdown, addon.db.chatEditBoxAnchor or "CENTER")
     UIDropDownMenu_SetWidth(anchorDropdown, 120)
+
+    -- Chat Frame Button Background
+    local chatButtonBG, chatButtonTitle = CreateSection(tabChat, "Chat Frame Buttons", "Hide the minimize button, background and borders on chat frames.", 140)
+    
+    local hideChatButtonBG = CreateFrame("CheckButton", nil, chatButtonBG, "InterfaceOptionsCheckButtonTemplate")
+    hideChatButtonBG:SetPoint("TOPLEFT", chatButtonTitle, "BOTTOMLEFT", 0, -12)
+    hideChatButtonBG.Text:SetText("Hide Button Background, Border & Minimize")
+    hideChatButtonBG:SetChecked(addon.db.hideChatButtonFrameBackground)
+    hideChatButtonBG:SetScript("OnClick", function(self)
+        addon.db.hideChatButtonFrameBackground = self:GetChecked()
+        addon:ApplyTweaks()
+    end)
+
+    local hideMenuButton = CreateFrame("CheckButton", nil, chatButtonBG, "InterfaceOptionsCheckButtonTemplate")
+    hideMenuButton:SetPoint("TOPLEFT", hideChatButtonBG, "BOTTOMLEFT", 0, -4)
+    hideMenuButton.Text:SetText("Hide Chat Menu Button")
+    hideMenuButton:SetChecked(addon.db.hideChatFrameMenuButton)
+    hideMenuButton:SetScript("OnClick", function(self)
+        addon.db.hideChatFrameMenuButton = self:GetChecked()
+        addon:ApplyTweaks()
+    end)
+
+    local hideChannelButton = CreateFrame("CheckButton", nil, chatButtonBG, "InterfaceOptionsCheckButtonTemplate")
+    hideChannelButton:SetPoint("TOPLEFT", hideMenuButton, "BOTTOMLEFT", 0, -4)
+    hideChannelButton.Text:SetText("Hide Chat Channel Button")
+    hideChannelButton:SetChecked(addon.db.hideChatFrameChannelButton)
+    hideChannelButton:SetScript("OnClick", function(self)
+        addon.db.hideChatFrameChannelButton = self:GetChecked()
+        addon:ApplyTweaks()
+    end)
 
 
     -- ====================
