@@ -66,7 +66,7 @@ function addon:RestoreFramePosition(frame, dbKey, defaultAnchor)
         -- Fallback to UIParent if named relative frame makes no sense or doesn't exist
         if not relative then relative = UIParent end
         
-        frame:SetPoint(pos.point, relative, pos.relativePoint or pos.point, pos.x or 0, pos.y or 0)
+        frame:SetPoint(pos.point, relative, pos.relativePoint or pos.point, pos.xOfs or pos.x or 0, pos.yOfs or pos.y or 0)
     else
         if defaultAnchor then
             frame:SetPoint(unpack(defaultAnchor))

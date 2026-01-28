@@ -2,11 +2,10 @@
 -- Garage UI Tweaks - Chat Tweaks
 local addonName, addon = ...
 
-local editBox = ChatFrame1EditBox
 local hookInstalled = false
 
 -- Recalculate position to match the desired scaling anchor
-local function EnforceAnchor(anchor)
+local function EnforceAnchor(editBox, anchor, save)
     if not anchor then anchor = "CENTER" end
     
     local x = editBox:GetLeft()
@@ -29,33 +28,42 @@ local function EnforceAnchor(anchor)
         editBox:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x + w/2, y - h/2)
     end
     
-    addon:SaveFramePosition(editBox, "chatEditBoxPosition")
+    if save then
+        addon:SaveFramePosition(editBox, "chatEditBoxPosition")
+    end
 end
 
 local function UpdateVisuals()
-    -- Restore Position first if needed
-    addon:RestoreFramePosition(editBox, "chatEditBoxPosition")
-    editBox:SetUserPlaced(true)
-    
-    -- Apply Border
-    local hide = addon.db.chatEditBoxHideBorder
-    local texLeft = _G[editBox:GetName().."Left"]
-    local texRight = _G[editBox:GetName().."Right"]
-    local texMid = _G[editBox:GetName().."Mid"]
-    
-    if texLeft then texLeft:SetShown(not hide) end
-    if texRight then texRight:SetShown(not hide) end
-    if texMid then texMid:SetShown(not hide) end
-    
-    editBox:SetWidth(addon.db.chatEditBoxWidth or 450)
-    
-    -- When just updating visuals, we might want to ensure the anchor is correct so future width changes scale correctly
-    -- But if we just restored "TOPLEFT" from drag, and user wants "CENTER" anchor scaling, we should convert it.
-    if addon.db.chatEditBoxAnchor then
-        local currentPoint = editBox:GetPoint()
-        -- Simplistic check: if current point doesn't match roughly the desired scaling anchor behavior
-        -- We just brute force re-anchor it to the desired pivot point at current location
-        EnforceAnchor(addon.db.chatEditBoxAnchor) 
+    -- Loop through all chat frames to ensure consistency across tabs
+    for i = 1, NUM_CHAT_WINDOWS do
+        local editBox = _G["ChatFrame"..i.."EditBox"]
+        if editBox then
+            -- Skip positioning logic if this specific box is currently being dragged by the user
+            if not editBox.isMoving then
+                -- Set user placed immediately to discourage Blizzard interference where possible
+                editBox:SetUserPlaced(true)
+
+                -- Restore Position first if needed
+                addon:RestoreFramePosition(editBox, "chatEditBoxPosition")
+                
+                -- Apply Border
+                local hide = addon.db.chatEditBoxHideBorder
+                local texLeft = _G[editBox:GetName().."Left"]
+                local texRight = _G[editBox:GetName().."Right"]
+                local texMid = _G[editBox:GetName().."Mid"]
+                
+                if texLeft then texLeft:SetShown(not hide) end
+                if texRight then texRight:SetShown(not hide) end
+                if texMid then texMid:SetShown(not hide) end
+                
+                editBox:SetWidth(addon.db.chatEditBoxWidth or 450)
+                
+                -- When just updating visuals, we might want to ensure the anchor is correct so future width changes scale correctly
+                if addon.db.chatEditBoxAnchor then
+                    EnforceAnchor(editBox, addon.db.chatEditBoxAnchor, false) 
+                end
+            end
+        end
     end
 end
 
@@ -66,30 +74,48 @@ function addon:InitChatTweaks()
         return 
     end
     
-    -- Enable movement capabilities
-    editBox:SetMovable(true)
-    editBox:SetClampedToScreen(true)
-    
-    -- Hook Mouse Events
-    editBox:HookScript("OnMouseDown", function(self, button)
-        if addon.db.chatEditBoxUnlock and IsShiftKeyDown() and button == "LeftButton" then
-            self:StartMoving()
-            self.isMoving = true
+    for i = 1, NUM_CHAT_WINDOWS do
+        local editBox = _G["ChatFrame"..i.."EditBox"]
+        if editBox then
+            -- Enable movement capabilities
+            editBox:SetMovable(true)
+            editBox:SetClampedToScreen(true)
+            
+            -- Hook Mouse Events
+            editBox:HookScript("OnMouseDown", function(self, button)
+                if addon.db.chatEditBoxUnlock and IsShiftKeyDown() and button == "LeftButton" then
+                    self:StartMoving()
+                    self.isMoving = true
+                end
+            end)
+            
+            editBox:HookScript("OnMouseUp", function(self, button)
+                if self.isMoving then
+                    self:StopMovingOrSizing()
+                    self.isMoving = false
+                    -- After dragging, the anchor is likely TOPLEFT. Re-enforce our desired scaling anchor
+                    if addon.db.chatEditBoxAnchor then
+                         EnforceAnchor(self, addon.db.chatEditBoxAnchor, true)
+                    else
+                         addon:SaveFramePosition(self, "chatEditBoxPosition")
+                    end
+                    UpdateVisuals()
+                end
+            end)
+            
+            -- Hook OnShow to force alignment when switching tabs
+            editBox:HookScript("OnShow", function(self)
+                -- Defer slightly to override Blizzard's default positioning for the active tab
+                C_Timer.After(0.01, function() 
+                    if not self.isMoving then
+                        -- We specifically target 'self' here to ensure the active one is caught, 
+                        -- but UpdateVisuals handles everything anyway.
+                        UpdateVisuals() 
+                    end
+                end)
+            end)
         end
-    end)
-    
-    editBox:HookScript("OnMouseUp", function(self, button)
-        if self.isMoving then
-            self:StopMovingOrSizing()
-            self.isMoving = false
-            -- After dragging, the anchor is likely TOPLEFT. Re-enforce our desired scaling anchor
-            if addon.db.chatEditBoxAnchor then
-                 EnforceAnchor(addon.db.chatEditBoxAnchor)
-            else
-                 addon:SaveFramePosition(self, "chatEditBoxPosition")
-            end
-        end
-    end)
+    end
     
     -- Hook OnShow for Chat Buttons to ensure they stay hidden if disabled
     if ChatFrameMenuButton then
@@ -99,7 +125,7 @@ function addon:InitChatTweaks()
             end
         end)
     end
-
+    
     if ChatFrameChannelButton then
         ChatFrameChannelButton:HookScript("OnShow", function(self)
             if addon.db.hideChatFrameChannelButton then
@@ -202,7 +228,7 @@ end
 
 -- Listener for UI updates that might reset the anchor
 hooksecurefunc("ChatEdit_UpdateHeader", function(editBox)
-    if editBox == ChatFrame1EditBox and addon.db.chatEditBoxPosition then
+    if addon.db.chatEditBoxPosition then
         -- This blizzard function resets anchors. We need to re-apply ours.
         -- But we must be careful not to create infinite loops or fight it too hard during transient states.
         -- Using a ticker or just re-applying simply usually works.
