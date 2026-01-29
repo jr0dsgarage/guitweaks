@@ -224,6 +224,15 @@ function addon:UpdateChatButtonBackgrounds()
             ChatFrameChannelButton:Show()
         end
     end
+
+    -- Quick Join / Social Toast Button (The "Social" button often found near chat)
+    if QuickJoinToastButton then
+        if addon.db.hideQuickJoinToastButton then
+            QuickJoinToastButton:Hide()
+        else
+            QuickJoinToastButton:Show()
+        end
+    end
 end
 
 -- Listener for UI updates that might reset the anchor

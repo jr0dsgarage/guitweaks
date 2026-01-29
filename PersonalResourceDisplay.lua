@@ -431,6 +431,40 @@ local function ApplyCustomTextures()
         -- Health Bar Container
         if PersonalResourceDisplayFrame.HealthBarsContainer then
             RecursiveApplyToChildren(PersonalResourceDisplayFrame.HealthBarsContainer, texHealth, isHealthAtlas, bgHealth, isBgHealthAtlas, colHealth, sparkHealth, isSparkHealthAtlas)
+            
+            -- Specific Hook for TempMaxHealthLoss (The "Purple" bar when max hp is temporarily reduced)
+            -- This bar often resets its texture dynamically when shown/updated by Blizzard.
+            local loss = PersonalResourceDisplayFrame.HealthBarsContainer.TempMaxHealthLoss
+            if loss and loss.IsObjectType and loss:IsObjectType("StatusBar") then
+                -- Apply immediately
+                ApplyTexSimple(loss, texHealth, isHealthAtlas, bgHealth, isBgHealthAtlas, colHealth, sparkHealth, isSparkHealthAtlas)
+                
+                -- Hook to persist
+                if not loss.GarageHooked then
+                     hooksecurefunc(loss, "SetStatusBarTexture", function(self, tex)
+                         if self.applyingGarageTex then return end
+                         
+                         local input = addon.db.prdMatchHealth and "::BlizzPlayer::" or addon.db.prdTextureHealth
+                         local rTex, rIsAtlas = ResolveTexture(input, "Health")
+                         
+                         self.applyingGarageTex = true
+                         if rIsAtlas then
+                              self:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+                              local t = self:GetStatusBarTexture()
+                              if t then 
+                                  t:SetAtlas(rTex)
+                                  t:SetAlpha(1)
+                              end
+                         else
+                              self:SetStatusBarTexture(rTex)
+                              local t = self:GetStatusBarTexture()
+                              if t then t:SetAlpha(1) end
+                         end
+                         self.applyingGarageTex = false
+                     end)
+                     loss.GarageHooked = true
+                end
+            end
         end
         
         -- Power Bar
