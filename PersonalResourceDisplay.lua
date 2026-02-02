@@ -96,6 +96,19 @@ end
 -- Texture Handling
 local textureFrame = CreateFrame("Frame")
 
+local function ForceUpdateFrame(frame)
+    if frame and frame.GetOrientation and frame.SetOrientation then
+        local orient = frame:GetOrientation()
+        if orient == "HORIZONTAL" then
+            frame:SetOrientation("VERTICAL")
+            frame:SetOrientation("HORIZONTAL")
+        else
+            frame:SetOrientation("HORIZONTAL")
+            frame:SetOrientation("VERTICAL")
+        end
+    end
+end
+
 -- Recursively helper for a specific frame to apply texture
 local function ApplyTexSimple(frame, texture, isAtlas, backgroundTexture, isBgAtlas, backgroundColor, sparkTexture, isSparkAtlas)
     if not frame then return end
@@ -116,6 +129,8 @@ local function ApplyTexSimple(frame, texture, isAtlas, backgroundTexture, isBgAt
                 local t = frame:GetStatusBarTexture()
                 if t then t:SetAlpha(1) end
             end
+            
+            ForceUpdateFrame(frame)
         elseif frame.SetTexture then
              -- Fallback for simple texture regions
              if isAtlas and frame.SetAtlas then
@@ -404,6 +419,8 @@ local function ApplyCustomTextures()
                           local t = self:GetStatusBarTexture()
                           if t then t:SetAlpha(1) end
                      end
+                     
+                     ForceUpdateFrame(self)
                      self.applyingGarageTex = false
                  end)
 
@@ -460,6 +477,8 @@ local function ApplyCustomTextures()
                               local t = self:GetStatusBarTexture()
                               if t then t:SetAlpha(1) end
                          end
+                         
+                         ForceUpdateFrame(self)
                          self.applyingGarageTex = false
                      end)
                      loss.GarageHooked = true
