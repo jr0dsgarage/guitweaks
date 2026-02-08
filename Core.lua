@@ -47,13 +47,6 @@ local defaults = {
         hideQuickJoinToastButton = false,
         prdShowWithTargetEnemy = false,
         prdShowWithTargetFriendly = false,
-        prdShowTextName = false,
-        
-        -- Custom Name Text Settings
-        prdNameScale = 1.0,
-        prdNameX = 0,
-        prdNameY = 4,
-
         backgroundPanelEnabled = false,
         backgroundPanelLocked = false,
         backgroundPanelColor = {r=0, g=0, b=0, a=0.5},

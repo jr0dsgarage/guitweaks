@@ -122,8 +122,7 @@ function addon:CreateSettingsPanel()
     local tabChat = CreateTabButton("chat", "Chat Tweaks", 2)
     local tabSpeed = CreateTabButton("speed", "Speed Tweaks", 3)
     local tabPRD = CreateTabButton("prd", "PRD Tweaks", 4)
-    local tabNameplate = CreateTabButton("nameplate", "Nameplate Tweaks", 5)
-    local tabBackground = CreateTabButton("background", "Background", 6)
+    local tabBackground = CreateTabButton("background", "Background", 5)
 
     -- Helper to add sections to a tab
     local function CreateSection(tab, titleText, descriptionText, height)
@@ -735,90 +734,6 @@ function addon:CreateSettingsPanel()
     
     -- Increase height of section to fit
     prdPanel:SetHeight(540)
-
-    -- ====================
-    -- NAMEPLATE TWEAKS TAB
-    -- ====================
-    local nameplatePanel, nameplateTitle = CreateSection(tabNameplate, "Nameplate Tweaks", "Customize nameplate text and appearance.", 200)
-
-    local showNameCheck = CreateFrame("CheckButton", nil, nameplatePanel, "InterfaceOptionsCheckButtonTemplate")
-    showNameCheck:SetPoint("TOPLEFT", nameplateTitle, "BOTTOMLEFT", 0, -12)
-    showNameCheck.Text:SetText("Show Name Text above Simplified Nameplate")
-    showNameCheck:SetChecked(addon.db.prdShowTextName)
-    showNameCheck:SetScript("OnClick", function(self)
-        addon.db.prdShowTextName = self:GetChecked()
-        addon:ApplyTweaks()
-        addon.UpdateNameSettingsUI() 
-    end)
-    
-    -- Name Text Customization Group
-    local grpName = CreateFrame("Frame", nil, nameplatePanel)
-    grpName:SetSize(400, 100)
-    grpName:SetPoint("TOPLEFT", showNameCheck, "BOTTOMLEFT", 20, -4)
-    
-    -- Scale Slider
-    local nameScale = CreateFrame("Slider", nil, grpName, "OptionsSliderTemplate")
-    nameScale:SetPoint("TOPLEFT", 0, 0)
-    nameScale:SetWidth(200) 
-    nameScale:SetMinMaxValues(0.5, 10.0)
-    nameScale:SetValue(addon.db.prdNameScale or 1.0)
-    nameScale:SetValueStep(0.1)
-    nameScale:SetObeyStepOnDrag(true)
-    nameScale.Text:SetText(string.format("Name Text Scale: %.1f", addon.db.prdNameScale or 1.0))
-    nameScale.Low:SetText("Small")
-    nameScale.High:SetText("Giant")
-    nameScale:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value * 10 + 0.5) / 10
-        self.Text:SetText(string.format("Name Text Scale: %.1f", value))
-        addon.db.prdNameScale = value
-        addon:UpdatePRDTextures()
-    end)
-
-    -- X Offset Input
-    local nameX = CreateFrame("EditBox", nil, grpName, "InputBoxTemplate")
-    nameX:SetSize(40, 20)
-    nameX:SetPoint("TOPLEFT", nameScale, "BOTTOMLEFT", 5, -25)
-    nameX:SetAutoFocus(false); nameX:SetNumeric(true)
-    nameX:SetNumber(addon.db.prdNameX or 0)
-    
-    local lblNameX = grpName:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    lblNameX:SetPoint("LEFT", nameX, "RIGHT", 5, 0)
-    lblNameX:SetText("X Offset")
-    
-    nameX:SetScript("OnEnterPressed", function(self)
-        addon.db.prdNameX = self:GetNumber()
-        self:ClearFocus()
-        addon:UpdatePRDTextures()
-    end)
-
-    -- Y Offset Input
-    local nameY = CreateFrame("EditBox", nil, grpName, "InputBoxTemplate")
-    nameY:SetSize(40, 20)
-    nameY:SetPoint("LEFT", lblNameX, "RIGHT", 20, 0)
-    nameY:SetAutoFocus(false); nameY:SetNumeric(true)
-    nameY:SetNumber(addon.db.prdNameY or 4)
-
-    local lblNameY = grpName:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    lblNameY:SetPoint("LEFT", nameY, "RIGHT", 5, 0)
-    lblNameY:SetText("Y Offset")
-
-    nameY:SetScript("OnEnterPressed", function(self)
-        addon.db.prdNameY = self:GetNumber()
-        self:ClearFocus()
-        addon:UpdatePRDTextures()
-    end)
-    
-    addon.UpdateNameSettingsUI = function()
-        if addon.db.prdShowTextName then
-            grpName:Show()
-            nameplatePanel:SetHeight(200)
-        else
-            grpName:Hide()
-            nameplatePanel:SetHeight(80)
-        end
-    end
-    addon.UpdateNameSettingsUI()
-
 
     -------------------------------------------------------
     -- Background Panel Tab
