@@ -48,6 +48,11 @@ function addon:CreateSettingsPanel()
                     tab.button:Disable() -- Traditional tab behavior
                     if tab.button.SetChecked then tab.button:SetChecked(true) end
                 end
+                
+                -- Trigger refresh if needed
+                if id == "background" and addon.RefreshSettings then
+                    addon:RefreshSettings("background")
+                end
             else
                 tab.frame:Hide()
                 if PanelTemplates_DeselectTab then
@@ -117,6 +122,8 @@ function addon:CreateSettingsPanel()
     local tabChat = CreateTabButton("chat", "Chat Tweaks", 2)
     local tabSpeed = CreateTabButton("speed", "Speed Tweaks", 3)
     local tabPRD = CreateTabButton("prd", "PRD Tweaks", 4)
+    local tabNameplate = CreateTabButton("nameplate", "Nameplate Tweaks", 5)
+    local tabBackground = CreateTabButton("background", "Background", 6)
 
     -- Helper to add sections to a tab
     local function CreateSection(tab, titleText, descriptionText, height)
@@ -336,6 +343,15 @@ function addon:CreateSettingsPanel()
     hideChannelButton:SetChecked(addon.db.hideChatFrameChannelButton)
     hideChannelButton:SetScript("OnClick", function(self)
         addon.db.hideChatFrameChannelButton = self:GetChecked()
+        addon:ApplyTweaks()
+    end)
+
+    local hideQuickJoinButton = CreateFrame("CheckButton", nil, chatButtonBG, "InterfaceOptionsCheckButtonTemplate")
+    hideQuickJoinButton:SetPoint("TOPLEFT", hideChannelButton, "BOTTOMLEFT", 0, -4)
+    hideQuickJoinButton.Text:SetText("Hide Social Button (Quick Join)")
+    hideQuickJoinButton:SetChecked(addon.db.hideQuickJoinToastButton)
+    hideQuickJoinButton:SetScript("OnClick", function(self)
+        addon.db.hideQuickJoinToastButton = self:GetChecked()
         addon:ApplyTweaks()
     end)
 
@@ -720,7 +736,336 @@ function addon:CreateSettingsPanel()
     -- Increase height of section to fit
     prdPanel:SetHeight(540)
 
+    -- ====================
+    -- NAMEPLATE TWEAKS TAB
+    -- ====================
+    local nameplatePanel, nameplateTitle = CreateSection(tabNameplate, "Nameplate Tweaks", "Customize nameplate text and appearance.", 200)
 
+    local showNameCheck = CreateFrame("CheckButton", nil, nameplatePanel, "InterfaceOptionsCheckButtonTemplate")
+    showNameCheck:SetPoint("TOPLEFT", nameplateTitle, "BOTTOMLEFT", 0, -12)
+    showNameCheck.Text:SetText("Show Name Text above Simplified Nameplate")
+    showNameCheck:SetChecked(addon.db.prdShowTextName)
+    showNameCheck:SetScript("OnClick", function(self)
+        addon.db.prdShowTextName = self:GetChecked()
+        addon:ApplyTweaks()
+        addon.UpdateNameSettingsUI() 
+    end)
+    
+    -- Name Text Customization Group
+    local grpName = CreateFrame("Frame", nil, nameplatePanel)
+    grpName:SetSize(400, 100)
+    grpName:SetPoint("TOPLEFT", showNameCheck, "BOTTOMLEFT", 20, -4)
+    
+    -- Scale Slider
+    local nameScale = CreateFrame("Slider", nil, grpName, "OptionsSliderTemplate")
+    nameScale:SetPoint("TOPLEFT", 0, 0)
+    nameScale:SetWidth(200) 
+    nameScale:SetMinMaxValues(0.5, 10.0)
+    nameScale:SetValue(addon.db.prdNameScale or 1.0)
+    nameScale:SetValueStep(0.1)
+    nameScale:SetObeyStepOnDrag(true)
+    nameScale.Text:SetText(string.format("Name Text Scale: %.1f", addon.db.prdNameScale or 1.0))
+    nameScale.Low:SetText("Small")
+    nameScale.High:SetText("Giant")
+    nameScale:SetScript("OnValueChanged", function(self, value)
+        value = math.floor(value * 10 + 0.5) / 10
+        self.Text:SetText(string.format("Name Text Scale: %.1f", value))
+        addon.db.prdNameScale = value
+        addon:UpdatePRDTextures()
+    end)
+
+    -- X Offset Input
+    local nameX = CreateFrame("EditBox", nil, grpName, "InputBoxTemplate")
+    nameX:SetSize(40, 20)
+    nameX:SetPoint("TOPLEFT", nameScale, "BOTTOMLEFT", 5, -25)
+    nameX:SetAutoFocus(false); nameX:SetNumeric(true)
+    nameX:SetNumber(addon.db.prdNameX or 0)
+    
+    local lblNameX = grpName:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    lblNameX:SetPoint("LEFT", nameX, "RIGHT", 5, 0)
+    lblNameX:SetText("X Offset")
+    
+    nameX:SetScript("OnEnterPressed", function(self)
+        addon.db.prdNameX = self:GetNumber()
+        self:ClearFocus()
+        addon:UpdatePRDTextures()
+    end)
+
+    -- Y Offset Input
+    local nameY = CreateFrame("EditBox", nil, grpName, "InputBoxTemplate")
+    nameY:SetSize(40, 20)
+    nameY:SetPoint("LEFT", lblNameX, "RIGHT", 20, 0)
+    nameY:SetAutoFocus(false); nameY:SetNumeric(true)
+    nameY:SetNumber(addon.db.prdNameY or 4)
+
+    local lblNameY = grpName:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    lblNameY:SetPoint("LEFT", nameY, "RIGHT", 5, 0)
+    lblNameY:SetText("Y Offset")
+
+    nameY:SetScript("OnEnterPressed", function(self)
+        addon.db.prdNameY = self:GetNumber()
+        self:ClearFocus()
+        addon:UpdatePRDTextures()
+    end)
+    
+    addon.UpdateNameSettingsUI = function()
+        if addon.db.prdShowTextName then
+            grpName:Show()
+            nameplatePanel:SetHeight(200)
+        else
+            grpName:Hide()
+            nameplatePanel:SetHeight(80)
+        end
+    end
+    addon.UpdateNameSettingsUI()
+
+
+    -------------------------------------------------------
+    -- Background Panel Tab
+    -------------------------------------------------------
+    local bgPanel = CreateSection(tabBackground, "Background Panel", "Configure the global background panel.", 300)
+
+    -- Enable Panel
+    local chkBGEnable = CreateFrame("CheckButton", nil, bgPanel, "InterfaceOptionsCheckButtonTemplate")
+    chkBGEnable:SetPoint("TOPLEFT", bgPanel, "TOPLEFT", 16, -40)
+    chkBGEnable.Text:SetText("Enable Background Panel")
+    chkBGEnable:SetChecked(addon.db.backgroundPanelEnabled)
+    chkBGEnable:SetScript("OnClick", function(self)
+        addon.db.backgroundPanelEnabled = self:GetChecked()
+        addon:UpdateBackgroundPanel()
+    end)
+    
+    -- Lock Panel
+    local chkBGLock = CreateFrame("CheckButton", nil, bgPanel, "InterfaceOptionsCheckButtonTemplate")
+    chkBGLock:SetPoint("TOPLEFT", chkBGEnable, "BOTTOMLEFT", 0, -8)
+    chkBGLock.Text:SetText("Lock Panel Position")
+    chkBGLock:SetChecked(addon.db.backgroundPanelLocked)
+    chkBGLock:SetScript("OnClick", function(self)
+        addon.db.backgroundPanelLocked = self:GetChecked()
+        addon:UpdateBackgroundPanel()
+    end)
+    
+    -- Force Screen Width
+    local chkBGForce = CreateFrame("CheckButton", nil, bgPanel, "InterfaceOptionsCheckButtonTemplate")
+    chkBGForce:SetPoint("TOPLEFT", chkBGLock, "BOTTOMLEFT", 0, -8)
+    chkBGForce.Text:SetText("Force Screen Width")
+    chkBGForce:SetChecked(addon.db.backgroundPanelForceWidth)
+    
+    -- Color Picker
+    local lblBGColor = bgPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    lblBGColor:SetPoint("TOPLEFT", chkBGForce, "BOTTOMLEFT", 0, -20)
+    lblBGColor:SetText("Panel Color / Alpha")
+    
+    local btnBGColor = CreateFrame("Button", nil, bgPanel)
+    btnBGColor:SetSize(20, 20)
+    btnBGColor:SetPoint("LEFT", lblBGColor, "RIGHT", 10, 0)
+    btnBGColor.texture = btnBGColor:CreateTexture(nil, "ARTWORK")
+    btnBGColor.texture:SetAllPoints()
+    btnBGColor.texture:SetColorTexture(1, 1, 1, 1) -- placeholder
+    
+    local function UpdateBGColorSwatch()
+        local c = addon.db.backgroundPanelColor
+        btnBGColor.texture:SetColorTexture(c.r, c.g, c.b, c.a)
+    end
+    UpdateBGColorSwatch()
+    
+    btnBGColor:SetScript("OnClick", function()
+        local c = addon.db.backgroundPanelColor
+        
+        if ColorPickerFrame.SetupColorPickerAndShow then
+            -- New Color Picker API (10.2.5+)
+            local info = {
+                r = c.r, g = c.g, b = c.b, opacity = c.a,
+                hasOpacity = true,
+                swatchFunc = function()
+                     local r,g,b = ColorPickerFrame:GetColorRGB()
+                     local a = ColorPickerFrame:GetColorAlpha()
+                     addon.db.backgroundPanelColor = {r=r, g=g, b=b, a=a}
+                     UpdateBGColorSwatch()
+                     addon:UpdateBackgroundPanel()
+                end,
+                opacityFunc = function() 
+                     local r,g,b = ColorPickerFrame:GetColorRGB()
+                     local a = ColorPickerFrame:GetColorAlpha()
+                     addon.db.backgroundPanelColor = {r=r, g=g, b=b, a=a}
+                     UpdateBGColorSwatch()
+                     addon:UpdateBackgroundPanel()
+                end,
+                cancelFunc = function()
+                     addon.db.backgroundPanelColor = {r=c.r, g=c.g, b=c.b, a=c.a}
+                     UpdateBGColorSwatch()
+                     addon:UpdateBackgroundPanel()
+                end
+            }
+            ColorPickerFrame:SetupColorPickerAndShow(info)
+        else
+            -- Legacy Color Picker API
+            local info = {
+                r = c.r, g = c.g, b = c.b, opacity = 1 - c.a,
+                hasOpacity = true,
+                swatchFunc = function()
+                     local r,g,b = ColorPickerFrame:GetColorRGB()
+                     local a = 1 - OpacitySliderFrame:GetValue()
+                     addon.db.backgroundPanelColor = {r=r, g=g, b=b, a=a}
+                     UpdateBGColorSwatch()
+                     addon:UpdateBackgroundPanel()
+                end,
+                opacityFunc = function() 
+                     local r,g,b = ColorPickerFrame:GetColorRGB()
+                     local a = 1 - OpacitySliderFrame:GetValue()
+                     addon.db.backgroundPanelColor = {r=r, g=g, b=b, a=a}
+                     UpdateBGColorSwatch()
+                     addon:UpdateBackgroundPanel()
+                end,
+                cancelFunc = function()
+                     addon.db.backgroundPanelColor = {r=c.r, g=c.g, b=c.b, a=c.a}
+                     UpdateBGColorSwatch()
+                     addon:UpdateBackgroundPanel()
+                end
+            }
+            ColorPickerFrame:SetColorRGB(info.r, info.g, info.b)
+            ColorPickerFrame.hasOpacity = info.hasOpacity
+            ColorPickerFrame.opacity = info.opacity
+            ColorPickerFrame.previousValues = {r = info.r, g = info.g, b = info.b, opacity = info.opacity}
+            ColorPickerFrame.func = info.swatchFunc
+            ColorPickerFrame.opacityFunc = info.opacityFunc
+            ColorPickerFrame.cancelFunc = info.cancelFunc
+            ColorPickerFrame:Show()
+        end
+    end)
+    
+    -- Width / Height Inputs
+    local lblDimensions = bgPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    lblDimensions:SetPoint("TOPLEFT", lblBGColor, "BOTTOMLEFT", 0, -20)
+    lblDimensions:SetText("Dimensions (Width x Height)")
+
+    local editWidth = CreateFrame("EditBox", nil, bgPanel, "InputBoxTemplate")
+    editWidth:SetSize(60, 20)
+    editWidth:SetPoint("LEFT", lblDimensions, "RIGHT", 10, 0)
+    editWidth:SetAutoFocus(false)
+    editWidth:SetNumeric(true)
+    editWidth:SetNumber(addon.db.backgroundPanelWidth)
+    editWidth:SetScript("OnEnterPressed", function(self) 
+        addon.db.backgroundPanelWidth = self:GetNumber()
+        self:ClearFocus() 
+        addon:UpdateBackgroundPanel()
+    end)
+    
+    local lblX = bgPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    lblX:SetPoint("LEFT", editWidth, "RIGHT", 5, 0)
+    lblX:SetText("x")
+    
+    local editHeight = CreateFrame("EditBox", nil, bgPanel, "InputBoxTemplate")
+    editHeight:SetSize(60, 20)
+    editHeight:SetPoint("LEFT", lblX, "RIGHT", 5, 0)
+    editHeight:SetAutoFocus(false)
+    editHeight:SetNumeric(true)
+    editHeight:SetNumber(addon.db.backgroundPanelHeight)
+    editHeight:SetScript("OnEnterPressed", function(self)
+        addon.db.backgroundPanelHeight = self:GetNumber()
+        self:ClearFocus()
+        addon:UpdateBackgroundPanel()
+    end)
+
+
+    -- Anchor Dropdown
+    local lblAnchor = bgPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    lblAnchor:SetPoint("TOPLEFT", lblDimensions, "BOTTOMLEFT", 0, -20)
+    lblAnchor:SetText("Anchor Point")
+
+    local dropAnchor = CreateFrame("Frame", "GarageUITweaksBGAnchorDrop", bgPanel, "UIDropDownMenuTemplate")
+    dropAnchor:SetPoint("LEFT", lblAnchor, "RIGHT", -10, -2)
+    
+    local function InitAnchorMenu(self, level, menuList)
+        local anchors = {
+            "TOPLEFT", "TOP", "TOPRIGHT",
+            "LEFT", "CENTER", "RIGHT",
+            "BOTTOMLEFT", "BOTTOM", "BOTTOMRIGHT"
+        }
+        
+        local info = UIDropDownMenu_CreateInfo()
+        for _, anchor in ipairs(anchors) do
+            info.text = anchor
+            info.func = function()
+                -- When changing anchor, we want to keep the panel in the same visual spot
+                -- But X/Y need to be recalculated relative to the new anchor
+                -- This is tricky without the frame being available here easily to GetCenter etc
+                -- However, BackgroundPanel.lua has the frame.
+                
+                -- We'll just set the DB and let UpdateBackgroundPanel handle potential jumps
+                -- OR we could try to be smart if the frame is shown.
+                -- For now, simple switch. User can drag to fix.
+                
+                addon.db.backgroundPanelAnchor = anchor
+                UIDropDownMenu_SetSelectedValue(dropAnchor, anchor)
+                if addon.UpdateBackgroundPanel then
+                     -- Ideally we reset position to center if it goes off screen, but let's just update
+                     addon:UpdateBackgroundPanel(true) -- Pass true to indicate "Anchor Changed" if we want special logic
+                end
+            end
+            info.checked = (addon.db.backgroundPanelAnchor == anchor)
+            UIDropDownMenu_AddButton(info)
+        end
+    end
+    
+    UIDropDownMenu_Initialize(dropAnchor, InitAnchorMenu)
+    UIDropDownMenu_SetWidth(dropAnchor, 120)
+    UIDropDownMenu_SetSelectedValue(dropAnchor, addon.db.backgroundPanelAnchor or "CENTER")
+    UIDropDownMenu_JustifyText(dropAnchor, "LEFT")
+
+
+
+    -- Reset Button
+    local btnReset = CreateFrame("Button", nil, bgPanel, "UIPanelButtonTemplate")
+    btnReset:SetSize(120, 22)
+    btnReset:SetPoint("TOPLEFT", lblAnchor, "BOTTOMLEFT", 0, -30)
+    btnReset:SetText("Reset Position")
+    btnReset:SetScript("OnClick", function()
+        -- Reset database values to default
+        addon.db.backgroundPanelWidth = 400
+        addon.db.backgroundPanelHeight = 100
+        addon.db.backgroundPanelX = 0
+        addon.db.backgroundPanelY = 0
+        addon.db.backgroundPanelAnchor = "CENTER"
+        addon.db.backgroundPanelForceWidth = false
+        
+        -- Update UI
+        addon:UpdateBackgroundPanel()
+        addon:RefreshSettings("background")
+    end)
+
+
+    -- Force width update logic
+    local function UpdateWidthState()
+        if addon.db.backgroundPanelForceWidth then
+             editWidth:Disable()
+             editWidth:SetTextColor(0.5, 0.5, 0.5)
+        else
+             editWidth:Enable()
+             editWidth:SetTextColor(1, 1, 1)
+        end
+    end
+    UpdateWidthState()
+    
+    chkBGForce:SetScript("OnClick", function(self)
+        addon.db.backgroundPanelForceWidth = self:GetChecked()
+        UpdateWidthState()
+        addon:UpdateBackgroundPanel()
+    end)
+    
+    -- Listener for external updates (e.g. drag resizing)
+    function addon:RefreshSettings(module)
+        if module == "background" and editWidth:IsVisible() then
+             -- Round to avoid excessive decimals
+             editWidth:SetNumber(math.floor(addon.db.backgroundPanelWidth + 0.5))
+             editHeight:SetNumber(math.floor(addon.db.backgroundPanelHeight + 0.5))
+             chkBGEnable:SetChecked(addon.db.backgroundPanelEnabled)
+             chkBGLock:SetChecked(addon.db.backgroundPanelLocked)
+             
+             UIDropDownMenu_SetSelectedValue(dropAnchor, addon.db.backgroundPanelAnchor)
+             UIDropDownMenu_SetText(dropAnchor, addon.db.backgroundPanelAnchor)
+        end
+    end
 
     -- Initialization
     ShowTab("general")

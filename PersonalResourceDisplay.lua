@@ -96,6 +96,19 @@ end
 -- Texture Handling
 local textureFrame = CreateFrame("Frame")
 
+local function ForceUpdateFrame(frame)
+    if frame and frame.GetOrientation and frame.SetOrientation then
+        local orient = frame:GetOrientation()
+        if orient == "HORIZONTAL" then
+            frame:SetOrientation("VERTICAL")
+            frame:SetOrientation("HORIZONTAL")
+        else
+            frame:SetOrientation("HORIZONTAL")
+            frame:SetOrientation("VERTICAL")
+        end
+    end
+end
+
 -- Recursively helper for a specific frame to apply texture
 local function ApplyTexSimple(frame, texture, isAtlas, backgroundTexture, isBgAtlas, backgroundColor, sparkTexture, isSparkAtlas)
     if not frame then return end
@@ -116,6 +129,8 @@ local function ApplyTexSimple(frame, texture, isAtlas, backgroundTexture, isBgAt
                 local t = frame:GetStatusBarTexture()
                 if t then t:SetAlpha(1) end
             end
+            
+            ForceUpdateFrame(frame)
         elseif frame.SetTexture then
              -- Fallback for simple texture regions
              if isAtlas and frame.SetAtlas then
@@ -404,6 +419,8 @@ local function ApplyCustomTextures()
                           local t = self:GetStatusBarTexture()
                           if t then t:SetAlpha(1) end
                      end
+                     
+                     ForceUpdateFrame(self)
                      self.applyingGarageTex = false
                  end)
 
@@ -431,6 +448,42 @@ local function ApplyCustomTextures()
         -- Health Bar Container
         if PersonalResourceDisplayFrame.HealthBarsContainer then
             RecursiveApplyToChildren(PersonalResourceDisplayFrame.HealthBarsContainer, texHealth, isHealthAtlas, bgHealth, isBgHealthAtlas, colHealth, sparkHealth, isSparkHealthAtlas)
+            
+            -- Specific Hook for TempMaxHealthLoss (The "Purple" bar when max hp is temporarily reduced)
+            -- This bar often resets its texture dynamically when shown/updated by Blizzard.
+            local loss = PersonalResourceDisplayFrame.HealthBarsContainer.TempMaxHealthLoss
+            if loss and loss.IsObjectType and loss:IsObjectType("StatusBar") then
+                -- Apply immediately
+                ApplyTexSimple(loss, texHealth, isHealthAtlas, bgHealth, isBgHealthAtlas, colHealth, sparkHealth, isSparkHealthAtlas)
+                
+                -- Hook to persist
+                if not loss.GarageHooked then
+                     hooksecurefunc(loss, "SetStatusBarTexture", function(self, tex)
+                         if self.applyingGarageTex then return end
+                         
+                         local input = addon.db.prdMatchHealth and "::BlizzPlayer::" or addon.db.prdTextureHealth
+                         local rTex, rIsAtlas = ResolveTexture(input, "Health")
+                         
+                         self.applyingGarageTex = true
+                         if rIsAtlas then
+                              self:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+                              local t = self:GetStatusBarTexture()
+                              if t then 
+                                  t:SetAtlas(rTex)
+                                  t:SetAlpha(1)
+                              end
+                         else
+                              self:SetStatusBarTexture(rTex)
+                              local t = self:GetStatusBarTexture()
+                              if t then t:SetAlpha(1) end
+                         end
+                         
+                         ForceUpdateFrame(self)
+                         self.applyingGarageTex = false
+                     end)
+                     loss.GarageHooked = true
+                end
+            end
         end
         
         -- Power Bar
@@ -552,8 +605,111 @@ local function ApplyCustomTextures()
     end
 end
 
+local function ApplySimplifiedNameSettings(plate)
+    if not plate or not plate.garageIsSimple then return end
+    
+    local nameText = plate.UnitFrame.name or plate.UnitFrame.Name
+    local healthBar = plate.UnitFrame.healthBar or plate.UnitFrame.HealthBar
+    
+    if nameText then
+        nameText:Show()
+        nameText:SetAlpha(1)
+        
+        -- Apply Scale
+        local scale = addon.db.prdNameScale or 1.0
+        nameText:SetScale(scale)
+        
+        -- Relocate the name text above the health bar
+        if healthBar then
+            local x = addon.db.prdNameX or 0
+            local y = (addon.db.prdNameY or 4)
+            nameText:ClearAllPoints()
+            nameText:SetPoint("BOTTOM", healthBar, "TOP", x, y)
+        end
+    end
+end
+
+-- Hook Handling to ensure persistence
+local function HookNameText(nameText, plate)
+    if nameText.garageHooked then return end
+    
+    hooksecurefunc(nameText, "SetPoint", function(self)
+        if plate.garageIsSimple and addon.db.prdShowTextName then
+            if self.garageApplying then return end
+            self.garageApplying = true
+            
+            -- Re-apply correct position
+            local healthBar = plate.UnitFrame.healthBar or plate.UnitFrame.HealthBar
+            if healthBar then
+                local x = addon.db.prdNameX or 0
+                local y = (addon.db.prdNameY or 4)
+                self:ClearAllPoints()
+                self:SetPoint("BOTTOM", healthBar, "TOP", x, y)
+            end
+            
+            self.garageApplying = false
+        end
+    end)
+    
+    -- Also hook SetScale just in case
+    hooksecurefunc(nameText, "SetScale", function(self) 
+         if plate.garageIsSimple and addon.db.prdShowTextName then
+            if self.garageApplyingScale then return end
+            self.garageApplyingScale = true
+            local scale = addon.db.prdNameScale or 1.0
+            if math.abs(self:GetScale() - scale) > 0.01 then
+                self:SetScale(scale)
+            end
+            self.garageApplyingScale = false
+         end
+    end)
+    
+    nameText.garageHooked = true
+end
+
+local function CheckAndForceNameText(plate)
+    if not plate or not plate.UnitFrame then return end
+    
+    -- Heuristic: If name text is HIDDEN by Blizzard but HealthBar is SHOWN, 
+    -- it is likely a "Simplified" or "Name Only" plate that we want to fix.
+    if not plate.garageChecked then
+        local nameText = plate.UnitFrame.name or plate.UnitFrame.Name
+        local healthBar = plate.UnitFrame.healthBar or plate.UnitFrame.HealthBar
+        
+        -- Only consider it "Simplified" if the Name is Hidden BUT the HealthBar is visible.
+        -- This distinction prevents us from grabbing plates that are just fully hidden/loading.
+        if nameText and (not nameText:IsShown()) and healthBar and healthBar:IsShown() then
+            plate.garageIsSimple = true
+            HookNameText(nameText, plate)
+        else
+            plate.garageIsSimple = false
+        end
+        plate.garageChecked = true
+    end
+
+    if plate.garageIsSimple then
+        ApplySimplifiedNameSettings(plate)
+    end
+end
 
 local function OnNamePlateAdded(unit)
+    local plate = C_NamePlate.GetNamePlateForUnit(unit)
+    if plate then
+         -- Reset flags for recycled frame
+         plate.garageChecked = false
+         plate.garageIsSimple = false
+         
+         -- Wait for Blizzard to apply layout (Hide name etc)
+         if addon.db.prdShowTextName then
+             -- Increased delay to 0.2 to allow health bar visibility to settle
+             C_Timer.After(0.2, function() 
+                if C_NamePlate.GetNamePlateForUnit(unit) == plate then -- Verify plate still valid
+                    CheckAndForceNameText(plate) 
+                end
+             end)
+         end
+    end
+
     if UnitIsUnit(unit, "player") then
         ApplyCustomTextures()
         C_Timer.After(0.1, ApplyCustomTextures)
@@ -571,10 +727,25 @@ end)
 
 function addon:UpdatePRDTextures()
     -- Always run if we have any settings
-    if (addon.db.prdTextureHealth or addon.db.prdBackgroundHealth or addon.db.prdTexturePower or addon.db.prdBackgroundPower or addon.db.prdTextureAlternate or addon.db.prdBackgroundAlternate) then
+    if (addon.db.prdShowTextName or addon.db.prdTextureHealth or addon.db.prdBackgroundHealth or addon.db.prdTexturePower or addon.db.prdBackgroundPower or addon.db.prdTextureAlternate or addon.db.prdBackgroundAlternate) then
        textureFrame:RegisterEvent("NAME_PLATE_UNIT_ADDED")
        textureFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
        ApplyCustomTextures()
+       
+       -- Force update all existing nameplates for name text
+       if addon.db.prdShowTextName then
+           local plates = C_NamePlate.GetNamePlates()
+           for _, plate in ipairs(plates) do
+               -- If we change settings live, we might want to re-check or just re-apply
+               if not plate.garageChecked then
+                    -- If unchecked, check it now (heuristic relies on current state)
+                    CheckAndForceNameText(plate)
+               elseif plate.garageIsSimple then
+                    -- If known simple, re-apply settings (Scale/Pos changed)
+                    ApplySimplifiedNameSettings(plate)
+               end
+           end
+       end
     else
        textureFrame:UnregisterAllEvents()
     end

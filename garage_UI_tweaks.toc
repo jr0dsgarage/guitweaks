@@ -13,4 +13,5 @@ SpeedPanel.lua
 PersonalResourceDisplay.lua
 ChatTweaks.lua
 Tweaks.lua
+BackgroundPanel.lua
 Settings.lua
