@@ -122,7 +122,8 @@ function addon:CreateSettingsPanel()
     local tabChat = CreateTabButton("chat", "Chat Tweaks", 2)
     local tabSpeed = CreateTabButton("speed", "Speed Tweaks", 3)
     local tabPRD = CreateTabButton("prd", "PRD Tweaks", 4)
-    local tabBackground = CreateTabButton("background", "Background", 5)
+    local tabNameplates = CreateTabButton("nameplates", "Nameplate Tweaks", 5)
+    local tabBackground = CreateTabButton("background", "Background", 6)
 
     -- Helper to add sections to a tab
     local function CreateSection(tab, titleText, descriptionText, height)
@@ -981,6 +982,55 @@ function addon:CreateSettingsPanel()
              UIDropDownMenu_SetText(dropAnchor, addon.db.backgroundPanelAnchor)
         end
     end
+
+
+    -- ====================
+    -- NAMEPLATE TAB CONTENT
+    -- ====================
+    local npPanel, npTitle = CreateSection(tabNameplates, "Nameplate Settings", "Configure nameplate behavior and appearance.", 200)
+
+    -- Simplified Nameplate Scale Slider
+    local npScaleSlider = CreateFrame("Slider", nil, npPanel, "OptionsSliderTemplate")
+    npScaleSlider:SetPoint("TOPLEFT", npTitle, "BOTTOMLEFT", 0, -28)
+    npScaleSlider:SetMinMaxValues(0.15, 1.0)
+    npScaleSlider:SetValue(addon.db.nameplateSimplifiedScale or 1.0)
+    npScaleSlider:SetValueStep(0.05)
+    npScaleSlider:SetObeyStepOnDrag(true)
+    npScaleSlider:SetWidth(200)
+    npScaleSlider.Low:SetText("15%")
+    npScaleSlider.High:SetText("100%")
+    npScaleSlider.Text:SetText(string.format("Simplified Scale: %.0f%%", (addon.db.nameplateSimplifiedScale or 1.0) * 100))
+    npScaleSlider:SetScript("OnValueChanged", function(self, value)
+        value = math.floor(value * 20 + 0.5) / 20 -- Rounding to nearest 0.05
+        self.Text:SetText(string.format("Simplified Scale: %.0f%%", value * 100))
+        addon.db.nameplateSimplifiedScale = value
+        
+        -- Apply the scale using our addon logic
+        if addon.UpdateNameplateScale then
+             addon:UpdateNameplateScale()
+        end
+    end)
+
+    -- Friendly Name Class Color Checkbox
+    local npClassColor = CreateFrame("CheckButton", nil, npPanel, "InterfaceOptionsCheckButtonTemplate")
+    npClassColor:SetPoint("TOPLEFT", npScaleSlider, "BOTTOMLEFT", 0, -28)
+    npClassColor.Text:SetText("Use Class Colors on Friendly Names")
+    npClassColor:SetChecked(addon.db.nameplateUseClassColorForFriendlyPlayerUnitNames)
+    npClassColor:SetScript("OnClick", function(self)
+        local isChecked = self:GetChecked()
+        addon.db.nameplateUseClassColorForFriendlyPlayerUnitNames = isChecked
+        local val = isChecked and "1" or "0"
+        
+        if C_CVar and C_CVar.SetCVar then
+            pcall(function() C_CVar.SetCVar("nameplateUseClassColorForFriendlyPlayerUnitNames", val) end)
+        elseif SetCVar then
+            pcall(function() SetCVar("nameplateUseClassColorForFriendlyPlayerUnitNames", val) end)
+        end
+        
+        if ConsoleExec then
+            ConsoleExec("nameplateUseClassColorForFriendlyPlayerUnitNames " .. val)
+        end
+    end)
 
     -- Initialization
     ShowTab("general")

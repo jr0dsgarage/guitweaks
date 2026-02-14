@@ -56,6 +56,8 @@ local defaults = {
         backgroundPanelAnchor = "CENTER",
         backgroundPanelX = 0,
         backgroundPanelY = 0,
+        nameplateSimplifiedScale = 1.0,
+        nameplateUseClassColorForFriendlyPlayerUnitNames = false,
     }
 }
 
