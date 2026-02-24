@@ -17,6 +17,7 @@ local defaults = {
         errorTextBackgroundEnabled = false,
         errorTextBackgroundAlpha = 0.7,
         errorTextBackgroundDuration = 3.0,
+        overrideActionBarYOffset = 0,
         battlegroundMapScale = 1.0,
         speedPanelEnabled = false,
         speedPanelLocked = false,

@@ -240,6 +240,27 @@ function addon:CreateSettingsPanel()
     end)
 
 
+    -- Override Action Bar
+    local overrideBarGroup, overrideBarTitle = CreateSection(tabGeneral, "Override Action Bar", "Adjust the position of the Vehicle/Override Action Bar.", 100)
+
+    local overrideYSlider = CreateFrame("Slider", nil, overrideBarGroup, "OptionsSliderTemplate")
+    overrideYSlider:SetPoint("TOPLEFT", overrideBarTitle, "BOTTOMLEFT", 0, -28)
+    overrideYSlider:SetMinMaxValues(0, 300)
+    overrideYSlider:SetValue(addon.db.overrideActionBarYOffset or 0)
+    overrideYSlider:SetValueStep(1)
+    overrideYSlider:SetObeyStepOnDrag(true)
+    overrideYSlider:SetWidth(400)
+    overrideYSlider.Low:SetText("0")
+    overrideYSlider.High:SetText("300")
+    overrideYSlider.Text:SetText(string.format("Y Offset: %d", addon.db.overrideActionBarYOffset or 0))
+    overrideYSlider:SetScript("OnValueChanged", function(self, value)
+        value = math.floor(value)
+        self.Text:SetText(string.format("Y Offset: %d", value))
+        addon.db.overrideActionBarYOffset = value
+        addon:UpdateOverrideActionBar()
+    end)
+    
+
     -- ====================
     -- CHAT TAB
     -- ====================

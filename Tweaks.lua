@@ -13,6 +13,7 @@ function addon:ApplyTweaks()
     self:UpdatePRDTextures()
     self:SetPRDVisibilityOptions()
     self:InitChatTweaks()
+    self:UpdateOverrideActionBar()
 
     -- Nameplate Tweaks
     self:UpdateNameplateScale()
@@ -65,4 +66,13 @@ function addon:UpdateNameplateScale()
     for _, frame in pairs(C_NamePlate.GetNamePlates()) do
          addon.ApplyScaleToFrame(frame)
     end
+end
+
+function addon:UpdateOverrideActionBar()
+    if InCombatLockdown() then return end
+    if not OverrideActionBar then return end
+    
+    local offset = self.db.overrideActionBarYOffset or 0
+    OverrideActionBar:ClearAllPoints()
+    OverrideActionBar:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, offset)
 end
