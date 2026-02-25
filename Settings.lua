@@ -1008,7 +1008,7 @@ function addon:CreateSettingsPanel()
     -- ====================
     -- NAMEPLATE TAB CONTENT
     -- ====================
-    local npPanel, npTitle = CreateSection(tabNameplates, "Nameplate Settings", "Configure nameplate behavior and appearance.", 200)
+    local npPanel, npTitle = CreateSection(tabNameplates, "Nameplate Settings", "Configure nameplate behavior and appearance.", 220)
 
     -- Simplified Nameplate Scale Slider
     local npScaleSlider = CreateFrame("Slider", nil, npPanel, "OptionsSliderTemplate")
@@ -1040,18 +1040,295 @@ function addon:CreateSettingsPanel()
     npClassColor:SetScript("OnClick", function(self)
         local isChecked = self:GetChecked()
         addon.db.nameplateUseClassColorForFriendlyPlayerUnitNames = isChecked
-        local val = isChecked and "1" or "0"
-        
-        if C_CVar and C_CVar.SetCVar then
-            pcall(function() C_CVar.SetCVar("nameplateUseClassColorForFriendlyPlayerUnitNames", val) end)
-        elseif SetCVar then
-            pcall(function() SetCVar("nameplateUseClassColorForFriendlyPlayerUnitNames", val) end)
+        if addon.SetFriendlyClassColorCVar then
+            addon:SetFriendlyClassColorCVar(isChecked)
+        else
+            local val = isChecked and "1" or "0"
+            if C_CVar and C_CVar.SetCVar then
+                pcall(function() C_CVar.SetCVar("nameplateUseClassColorForFriendlyPlayerUnitNames", val) end)
+            elseif SetCVar then
+                pcall(function() SetCVar("nameplateUseClassColorForFriendlyPlayerUnitNames", val) end)
+            end
+            if ConsoleExec then
+                ConsoleExec("nameplateUseClassColorForFriendlyPlayerUnitNames " .. val)
+            end
         end
-        
-        if ConsoleExec then
-            ConsoleExec("nameplateUseClassColorForFriendlyPlayerUnitNames " .. val)
+        if addon.UpdateFriendlyNameplates then
+            addon:UpdateFriendlyNameplates()
         end
     end)
+
+    local npFriendlyPanel, npFriendlyTitle = CreateSection(tabNameplates, "Friendly Simplified Names", "Render readable names above simplified friendly player nameplates.", 440)
+
+    local npFriendlyEnabled = CreateFrame("CheckButton", nil, npFriendlyPanel, "InterfaceOptionsCheckButtonTemplate")
+    npFriendlyEnabled:SetPoint("TOPLEFT", npFriendlyTitle, "BOTTOMLEFT", 0, -12)
+    npFriendlyEnabled.Text:SetText("Enable Friendly Name Rendering")
+    npFriendlyEnabled:SetChecked(addon.db.nameplateFriendlyNamesEnabled ~= false)
+    npFriendlyEnabled:SetScript("OnClick", function(self)
+        addon.db.nameplateFriendlyNamesEnabled = self:GetChecked()
+        if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
+    end)
+
+    local fontLabel = npFriendlyPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    fontLabel:SetPoint("TOPLEFT", npFriendlyEnabled, "BOTTOMLEFT", 0, -18)
+    fontLabel:SetText("Font")
+
+    local fontDropdown = CreateFrame("Frame", "GUIT_FriendlyNameFontDropdown", npFriendlyPanel, "UIDropDownMenuTemplate")
+    fontDropdown:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", -16, -2)
+    UIDropDownMenu_SetWidth(fontDropdown, 210)
+
+    local function BuildFriendlyFontList()
+        local fontList = {
+            { name = "Friz Quadrata", path = "Fonts\\FRIZQT__.TTF" },
+            { name = "Arial Narrow", path = "Fonts\\ARIALN.TTF" },
+            { name = "Morpheus", path = "Fonts\\MORPHEUS.TTF" },
+            { name = "Skurri", path = "Fonts\\SKURRI.TTF" },
+        }
+
+        if LSM then
+            local fonts = LSM:HashTable("font")
+            local keys = {}
+            for k in pairs(fonts) do table.insert(keys, k) end
+            table.sort(keys)
+            for _, key in ipairs(keys) do
+                local fontPath = fonts[key]
+                local exists = false
+                for _, item in ipairs(fontList) do
+                    if item.path == fontPath then
+                        exists = true
+                        break
+                    end
+                end
+                if not exists then
+                    table.insert(fontList, { name = key, path = fontPath })
+                end
+            end
+        end
+
+        return fontList
+    end
+
+    local function GetFriendlyFontDisplayName(path)
+        local list = BuildFriendlyFontList()
+        for _, item in ipairs(list) do
+            if item.path == path then
+                return item.name
+            end
+        end
+        return "Custom/Unknown"
+    end
+
+    UIDropDownMenu_Initialize(fontDropdown, function(self, level)
+        local selected = addon.db.nameplateFriendlyNameFont or "Fonts\\FRIZQT__.TTF"
+        local list = BuildFriendlyFontList()
+        for _, item in ipairs(list) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = item.name
+            info.value = item.path
+            info.func = function(btn)
+                addon.db.nameplateFriendlyNameFont = btn.value
+                UIDropDownMenu_SetSelectedValue(fontDropdown, btn.value)
+                UIDropDownMenu_SetText(fontDropdown, item.name)
+                if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
+            end
+            info.checked = (selected == item.path)
+            UIDropDownMenu_AddButton(info)
+        end
+    end)
+
+    local selectedFriendlyFont = addon.db.nameplateFriendlyNameFont or "Fonts\\FRIZQT__.TTF"
+    UIDropDownMenu_SetSelectedValue(fontDropdown, selectedFriendlyFont)
+    UIDropDownMenu_SetText(fontDropdown, GetFriendlyFontDisplayName(selectedFriendlyFont))
+
+    local function CreateNameColorSwatch(parent, relativeTo)
+        local lbl = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        lbl:SetPoint("LEFT", relativeTo, "RIGHT", 26, 0)
+        lbl:SetText("Color")
+
+        local swatch = CreateFrame("Button", nil, parent, "BackdropTemplate")
+        swatch:SetSize(20, 20)
+        swatch:SetPoint("LEFT", lbl, "RIGHT", 8, 0)
+        swatch:SetBackdrop({
+            edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1,
+            bgFile = "Interface\\Buttons\\WHITE8x8", tiling = false
+        })
+        swatch:SetBackdropBorderColor(0.6, 0.6, 0.6)
+
+        local function UpdateSwatch()
+            local c = addon.db.nameplateFriendlyNameColor or { r = 1, g = 1, b = 1, a = 1 }
+            swatch:SetBackdropColor(c.r, c.g, c.b, c.a or 1)
+        end
+        UpdateSwatch()
+
+        swatch:SetScript("OnClick", function()
+            local c = addon.db.nameplateFriendlyNameColor or { r = 1, g = 1, b = 1, a = 1 }
+
+            local function GetAlphaSafe()
+                if ColorPickerFrame.GetColorAlpha then
+                    return ColorPickerFrame:GetColorAlpha()
+                elseif OpacitySliderFrame then
+                    return 1 - OpacitySliderFrame:GetValue()
+                end
+                return 1
+            end
+
+            local info = {
+                r = c.r,
+                g = c.g,
+                b = c.b,
+                opacity = 1 - (c.a or 1),
+                hasOpacity = true,
+                swatchFunc = function()
+                    local r, g, b = ColorPickerFrame:GetColorRGB()
+                    local a = GetAlphaSafe()
+                    addon.db.nameplateFriendlyNameColor = { r = r, g = g, b = b, a = a }
+                    UpdateSwatch()
+                    if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
+                end,
+                opacityFunc = function()
+                    local r, g, b = ColorPickerFrame:GetColorRGB()
+                    local a = GetAlphaSafe()
+                    addon.db.nameplateFriendlyNameColor = { r = r, g = g, b = b, a = a }
+                    UpdateSwatch()
+                    if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
+                end,
+                cancelFunc = function()
+                    addon.db.nameplateFriendlyNameColor = c
+                    UpdateSwatch()
+                    if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
+                end,
+            }
+
+            ColorPickerFrame:SetupColorPickerAndShow(info)
+        end)
+
+        return swatch
+    end
+
+    local _ = CreateNameColorSwatch(npFriendlyPanel, fontDropdown)
+
+    local outlineLabel = npFriendlyPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    outlineLabel:SetPoint("TOPLEFT", fontDropdown, "BOTTOMLEFT", 0, -18)
+    outlineLabel:SetText("Outline Type")
+
+    local outlineDropdown = CreateFrame("Frame", "GUIT_FriendlyNameOutlineDropdown", npFriendlyPanel, "UIDropDownMenuTemplate")
+    outlineDropdown:SetPoint("TOPLEFT", outlineLabel, "BOTTOMLEFT", -16, -2)
+    UIDropDownMenu_SetWidth(outlineDropdown, 160)
+
+    UIDropDownMenu_Initialize(outlineDropdown, function(self, level)
+        local selected = (addon.db.nameplateFriendlyNameOutline or "OUTLINE"):upper()
+        local options = {
+            { text = "None", value = "NONE" },
+            { text = "Outline", value = "OUTLINE" },
+            { text = "Thick Outline", value = "THICKOUTLINE" },
+        }
+
+        for _, option in ipairs(options) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = option.text
+            info.value = option.value
+            info.checked = selected == option.value
+            info.func = function(btn)
+                addon.db.nameplateFriendlyNameOutline = btn.value
+                UIDropDownMenu_SetSelectedValue(outlineDropdown, btn.value)
+                UIDropDownMenu_SetText(outlineDropdown, option.text)
+                if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
+            end
+            UIDropDownMenu_AddButton(info)
+        end
+    end)
+
+    local selectedOutline = (addon.db.nameplateFriendlyNameOutline or "OUTLINE"):upper()
+    local outlineText = selectedOutline == "NONE" and "None" or (selectedOutline == "THICKOUTLINE" and "Thick Outline" or "Outline")
+    UIDropDownMenu_SetSelectedValue(outlineDropdown, selectedOutline)
+    UIDropDownMenu_SetText(outlineDropdown, outlineText)
+
+    local sizeSlider = CreateFrame("Slider", nil, npFriendlyPanel, "OptionsSliderTemplate")
+    sizeSlider:SetPoint("TOPLEFT", outlineDropdown, "BOTTOMLEFT", 18, -32)
+    sizeSlider:SetMinMaxValues(8, 64)
+    sizeSlider:SetValueStep(1)
+    sizeSlider:SetObeyStepOnDrag(true)
+    sizeSlider:SetWidth(220)
+    sizeSlider.Low:SetText("8")
+    sizeSlider.High:SetText("64")
+    sizeSlider:SetValue(addon.db.nameplateFriendlyNameSize or 13)
+    sizeSlider.Text:SetText(string.format("Font Size: %d", addon.db.nameplateFriendlyNameSize or 13))
+    sizeSlider:SetScript("OnValueChanged", function(self, value)
+        value = math.floor(value + 0.5)
+        addon.db.nameplateFriendlyNameSize = value
+        self.Text:SetText(string.format("Font Size: %d", value))
+        if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
+    end)
+
+    local xSlider = CreateFrame("Slider", nil, npFriendlyPanel, "OptionsSliderTemplate")
+    xSlider:SetPoint("TOPLEFT", sizeSlider, "BOTTOMLEFT", 0, -30)
+    xSlider:SetMinMaxValues(-100, 100)
+    xSlider:SetValueStep(1)
+    xSlider:SetObeyStepOnDrag(true)
+    xSlider:SetWidth(220)
+    xSlider.Low:SetText("-100")
+    xSlider.High:SetText("100")
+    xSlider:SetValue(addon.db.nameplateFriendlyNameOffsetX or 0)
+    xSlider.Text:SetText(string.format("X Offset: %d", addon.db.nameplateFriendlyNameOffsetX or 0))
+    xSlider:SetScript("OnValueChanged", function(self, value)
+        value = math.floor(value + 0.5)
+        addon.db.nameplateFriendlyNameOffsetX = value
+        self.Text:SetText(string.format("X Offset: %d", value))
+        if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
+    end)
+
+    local ySlider = CreateFrame("Slider", nil, npFriendlyPanel, "OptionsSliderTemplate")
+    ySlider:SetPoint("TOPLEFT", xSlider, "BOTTOMLEFT", 0, -30)
+    ySlider:SetMinMaxValues(-100, 100)
+    ySlider:SetValueStep(1)
+    ySlider:SetObeyStepOnDrag(true)
+    ySlider:SetWidth(220)
+    ySlider.Low:SetText("-100")
+    ySlider.High:SetText("100")
+    ySlider:SetValue(addon.db.nameplateFriendlyNameOffsetY or 10)
+    ySlider.Text:SetText(string.format("Y Offset: %d", addon.db.nameplateFriendlyNameOffsetY or 10))
+    ySlider:SetScript("OnValueChanged", function(self, value)
+        value = math.floor(value + 0.5)
+        addon.db.nameplateFriendlyNameOffsetY = value
+        self.Text:SetText(string.format("Y Offset: %d", value))
+        if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
+    end)
+
+    local justifyLabel = npFriendlyPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    justifyLabel:SetPoint("TOPLEFT", ySlider, "BOTTOMLEFT", 0, -22)
+    justifyLabel:SetText("Justification")
+
+    local justifyDropdown = CreateFrame("Frame", "GUIT_FriendlyNameJustifyDropdown", npFriendlyPanel, "UIDropDownMenuTemplate")
+    justifyDropdown:SetPoint("TOPLEFT", justifyLabel, "BOTTOMLEFT", -16, -2)
+    UIDropDownMenu_SetWidth(justifyDropdown, 120)
+
+    UIDropDownMenu_Initialize(justifyDropdown, function(self, level)
+        local selected = (addon.db.nameplateFriendlyNameJustify or "CENTER"):upper()
+        local options = {
+            { text = "Left", value = "LEFT" },
+            { text = "Center", value = "CENTER" },
+            { text = "Right", value = "RIGHT" },
+        }
+
+        for _, option in ipairs(options) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = option.text
+            info.value = option.value
+            info.checked = selected == option.value
+            info.func = function(btn)
+                addon.db.nameplateFriendlyNameJustify = btn.value
+                UIDropDownMenu_SetSelectedValue(justifyDropdown, btn.value)
+                UIDropDownMenu_SetText(justifyDropdown, option.text)
+                if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
+            end
+            UIDropDownMenu_AddButton(info)
+        end
+    end)
+
+    local selectedJustify = (addon.db.nameplateFriendlyNameJustify or "CENTER"):upper()
+    local justifyText = selectedJustify == "LEFT" and "Left" or (selectedJustify == "RIGHT" and "Right" or "Center")
+    UIDropDownMenu_SetSelectedValue(justifyDropdown, selectedJustify)
+    UIDropDownMenu_SetText(justifyDropdown, justifyText)
 
     -- Initialization
     ShowTab("general")

@@ -59,6 +59,14 @@ local defaults = {
         backgroundPanelY = 0,
         nameplateSimplifiedScale = 1.0,
         nameplateUseClassColorForFriendlyPlayerUnitNames = false,
+        nameplateFriendlyNamesEnabled = true,
+        nameplateFriendlyNameFont = "Fonts\\FRIZQT__.TTF",
+        nameplateFriendlyNameSize = 13,
+        nameplateFriendlyNameOutline = "OUTLINE",
+        nameplateFriendlyNameColor = {r=1, g=1, b=1, a=1},
+        nameplateFriendlyNameOffsetX = 0,
+        nameplateFriendlyNameOffsetY = 10,
+        nameplateFriendlyNameJustify = "CENTER",
     }
 }
 
