@@ -1059,9 +1059,10 @@ function addon:CreateSettingsPanel()
     end)
 
     local npFriendlyPanel, npFriendlyTitle = CreateSection(tabNameplates, "Friendly Simplified Names", "Render readable names above simplified friendly player nameplates.", 440)
+    local npFriendlyLeftInset = 10
 
     local npFriendlyEnabled = CreateFrame("CheckButton", nil, npFriendlyPanel, "InterfaceOptionsCheckButtonTemplate")
-    npFriendlyEnabled:SetPoint("TOPLEFT", npFriendlyTitle, "BOTTOMLEFT", 0, -12)
+    npFriendlyEnabled:SetPoint("TOPLEFT", npFriendlyTitle, "BOTTOMLEFT", npFriendlyLeftInset, -12)
     npFriendlyEnabled.Text:SetText("Enable Friendly Name Rendering")
     npFriendlyEnabled:SetChecked(addon.db.nameplateFriendlyNamesEnabled ~= false)
     npFriendlyEnabled:SetScript("OnClick", function(self)
@@ -1070,11 +1071,11 @@ function addon:CreateSettingsPanel()
     end)
 
     local fontLabel = npFriendlyPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    fontLabel:SetPoint("TOPLEFT", npFriendlyEnabled, "BOTTOMLEFT", 0, -18)
+    fontLabel:SetPoint("TOPLEFT", npFriendlyPanel, "TOPLEFT", npFriendlyLeftInset, -68)
     fontLabel:SetText("Font")
 
     local fontDropdown = CreateFrame("Frame", "GUIT_FriendlyNameFontDropdown", npFriendlyPanel, "UIDropDownMenuTemplate")
-    fontDropdown:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", -16, -2)
+    fontDropdown:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", -8, -2)
     UIDropDownMenu_SetWidth(fontDropdown, 210)
 
     local function BuildFriendlyFontList()
@@ -1212,7 +1213,7 @@ function addon:CreateSettingsPanel()
     outlineLabel:SetText("Outline Type")
 
     local outlineDropdown = CreateFrame("Frame", "GUIT_FriendlyNameOutlineDropdown", npFriendlyPanel, "UIDropDownMenuTemplate")
-    outlineDropdown:SetPoint("TOPLEFT", outlineLabel, "BOTTOMLEFT", -16, -2)
+    outlineDropdown:SetPoint("TOPLEFT", outlineLabel, "BOTTOMLEFT", -8, -2)
     UIDropDownMenu_SetWidth(outlineDropdown, 160)
 
     UIDropDownMenu_Initialize(outlineDropdown, function(self, level)
@@ -1244,7 +1245,7 @@ function addon:CreateSettingsPanel()
     UIDropDownMenu_SetText(outlineDropdown, outlineText)
 
     local sizeSlider = CreateFrame("Slider", nil, npFriendlyPanel, "OptionsSliderTemplate")
-    sizeSlider:SetPoint("TOPLEFT", outlineDropdown, "BOTTOMLEFT", 18, -32)
+    sizeSlider:SetPoint("TOPLEFT", npFriendlyPanel, "TOPLEFT", npFriendlyLeftInset + 8, -204)
     sizeSlider:SetMinMaxValues(8, 64)
     sizeSlider:SetValueStep(1)
     sizeSlider:SetObeyStepOnDrag(true)
@@ -1299,7 +1300,7 @@ function addon:CreateSettingsPanel()
     justifyLabel:SetText("Justification")
 
     local justifyDropdown = CreateFrame("Frame", "GUIT_FriendlyNameJustifyDropdown", npFriendlyPanel, "UIDropDownMenuTemplate")
-    justifyDropdown:SetPoint("TOPLEFT", justifyLabel, "BOTTOMLEFT", -16, -2)
+    justifyDropdown:SetPoint("TOPLEFT", justifyLabel, "BOTTOMLEFT", -8, -2)
     UIDropDownMenu_SetWidth(justifyDropdown, 120)
 
     UIDropDownMenu_Initialize(justifyDropdown, function(self, level)

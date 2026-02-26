@@ -12,8 +12,12 @@ local function IsFriendlyPlayerUnit(unit)
         return false
     end
 
+    if UnitInParty(unit) or UnitInRaid(unit) then
+        return true
+    end
+
     local reaction = UnitReaction(unit, "player")
-    return reaction and reaction > 4
+    return reaction and reaction > 4 or false
 end
 
 local function ResolveNameplateUnit(frame)
