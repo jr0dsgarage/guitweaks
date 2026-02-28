@@ -1080,11 +1080,24 @@ function addon:CreateSettingsPanel()
 
     local function BuildFriendlyFontList()
         local fontList = {
-            { name = "Friz Quadrata", path = "Fonts\\FRIZQT__.TTF" },
-            { name = "Arial Narrow", path = "Fonts\\ARIALN.TTF" },
-            { name = "Morpheus", path = "Fonts\\MORPHEUS.TTF" },
-            { name = "Skurri", path = "Fonts\\SKURRI.TTF" },
+            { name = "Friz Quadrata", path = "Fonts\\FRIZQT__.TTF", group = "Blizzard" },
+            { name = "Arial Narrow", path = "Fonts\\ARIALN.TTF", group = "Blizzard" },
+            { name = "Morpheus", path = "Fonts\\MORPHEUS.TTF", group = "Blizzard" },
+            { name = "Skurri", path = "Fonts\\SKURRI.TTF", group = "Blizzard" },
         }
+
+        local seenByPath = {}
+        for _, item in ipairs(fontList) do
+            seenByPath[item.path] = true
+        end
+
+        local function AddFontOption(name, path, group)
+            if not path or path == "" or seenByPath[path] then
+                return
+            end
+            seenByPath[path] = true
+            table.insert(fontList, { name = name, path = path, group = group or "Other" })
+        end
 
         if LSM then
             local fonts = LSM:HashTable("font")
@@ -1093,27 +1106,116 @@ function addon:CreateSettingsPanel()
             table.sort(keys)
             for _, key in ipairs(keys) do
                 local fontPath = fonts[key]
-                local exists = false
-                for _, item in ipairs(fontList) do
-                    if item.path == fontPath then
-                        exists = true
-                        break
-                    end
-                end
-                if not exists then
-                    table.insert(fontList, { name = key, path = fontPath })
-                end
+                AddFontOption(key, fontPath, "LibSharedMedia")
             end
         end
 
-        return fontList
+        local function AddFontMagicFonts()
+            local hasFontMagic = C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("FontMagic")
+            if not hasFontMagic then
+                return
+            end
+
+            local fontMagicPath = "Interface\\AddOns\\FontMagic\\"
+            local groups = {
+                { label = "Popular", folder = "Popular", fonts = {
+                    "Pepsi.ttf", "bignoodletitling.ttf", "Expressway.ttf", "Bangers.ttf", "PTSansNarrow-Bold.ttf", "Roboto Condensed Bold.ttf",
+                    "NotoSans_Condensed-Bold.ttf", "Roboto-Bold.ttf", "AlteHaasGroteskBold.ttf", "CalibriBold.ttf", "Orbitron.ttf", "Prototype.ttf",
+                    "914Solid.ttf", "Halo.ttf", "Proxima Nova Condensed Bold.ttf", "Comfortaa-Bold.ttf", "Andika-Bold.ttf", "lemon-milk.ttf",
+                    "Good Brush.ttf", "KG HAPPY.ttf",
+                } },
+                { label = "Clean & Readable", folder = "Easy-to-Read", fonts = {
+                    "BauhausRegular.ttf", "Butterpop.ttf", "Diogenes.ttf", "Junegull.ttf", "Pantalone.ttf", "Resoft.ttf",
+                    "Retro Amour.ttf", "SF-Pro.ttf", "Solange.ttf", "Takeaway.ttf",
+                } },
+                { label = "Bold & Impact", folder = "BoldImpact", fonts = {
+                    "airstrikebold.ttf", "Blazed.ttf", "DieDieDie.ttf", "graff.ttf", "Green Fuz.otf", "Love Craft.ttf",
+                    "modernwarfare.ttf", "Showpop.ttf", "Skratchpunk.ttf", "Skullphabet.ttf", "Trashco.ttf", "Whiplash.ttf",
+                } },
+                { label = "Fantasy & RP", folder = "Fun", fonts = {
+                    "Acadian.ttf", "akash.ttf", "Caesar.ttf", "ComicRunes.ttf", "crygords.ttf", "Deltarune.ttf",
+                    "Elven.ttf", "Gunung.ttf", "Guroes.ttf", "HarryP.ttf", "Hobbit.ttf", "Kting.ttf",
+                    "leviathans.ttf", "MystikOrbs.ttf", "Odinson.ttf", "ParryHotter.ttf", "Pau.ttf", "Pokemon.ttf",
+                    "Runic.ttf", "Runy.ttf", "Ruritania.ttf", "Spongebob.ttf", "Starborn.ttf", "Starshines.ttf",
+                    "The Centurion .ttf", "Vampire Wars.ttf", "VTKS.ttf", "WaltographUI.ttf", "Wasser.ttf", "Wickedmouse.ttf",
+                    "WKnight.ttf", "Zombie.ttf",
+                } },
+                { label = "Sci-Fi & Tech", folder = "Future", fonts = {
+                    "04b.ttf", "albra.TTF", "Audiowide.ttf", "continuum.ttf", "dalek.ttf", "digital-7.ttf",
+                    "Digital.ttf", "Exocet.ttf", "Galaxyone.ttf", "Minecrafter.Reg.ttf", "pf_tempesta_seven.ttf", "Price.ttf",
+                    "RaceSpace.ttf", "RushDriver.ttf", "space age.ttf", "Terminator.ttf",
+                } },
+                { label = "Random", folder = "Random", fonts = {
+                    "accidentalpres.ttf", "animeace.ttf", "Barriecito.ttf", "baskethammer.ttf", "ChopSic.ttf", "college.ttf",
+                    "Disko.ttf", "Dmagic.ttf", "edgyh.ttf", "edkies.ttf", "FastHand.ttf", "figtoen.ttf",
+                    "font2.ttf", "Fraks.ttf", "Ginko.ttf", "Homespun.ttf", "IKARRG.TTF", "JJSTS.TTF",
+                    "KOMIKAX_.ttf", "Ktingw.ttf", "Melted.ttf", "Midorima.ttf", "Munsteria.ttf", "Rebuffed.TTF",
+                    "Shiruken.ttf", "shog.ttf", "Starcine.ttf", "Stentiga.ttf", "tsuchigumo.ttf", "WhoAsksSatan.ttf",
+                } },
+            }
+
+            local function TryAdd(groupLabel, basePath, fileName)
+                local fullPath = basePath .. fileName
+                if seenByPath[fullPath] then
+                    return
+                end
+
+                local label = fileName:gsub("%.[Tt][Tt][Ff]$", ""):gsub("%.[Oo][Tt][Ff]$", "")
+                AddFontOption(label, fullPath, "FontMagic: " .. groupLabel)
+            end
+
+            for _, group in ipairs(groups) do
+                local basePath = fontMagicPath .. group.folder .. "\\"
+                for _, fileName in ipairs(group.fonts) do
+                    TryAdd(group.label, basePath, fileName)
+                end
+            end
+
+            local customPath = "Interface\\AddOns\\FontMagicCustomFonts\\Custom\\"
+            if type(FontMagicCustomFonts) == "table" and type(FontMagicCustomFonts.PATH) == "string" and FontMagicCustomFonts.PATH ~= "" then
+                customPath = FontMagicCustomFonts.PATH
+            end
+            for i = 1, 20 do
+                TryAdd("Custom", customPath, i .. ".ttf")
+            end
+        end
+
+        AddFontMagicFonts()
+
+        local grouped = {}
+        local groupOrder = { "Blizzard", "LibSharedMedia" }
+        local known = { Blizzard = true, LibSharedMedia = true }
+
+        for _, item in ipairs(fontList) do
+            local group = item.group or "Other"
+            grouped[group] = grouped[group] or {}
+            table.insert(grouped[group], item)
+            if not known[group] then
+                known[group] = true
+                table.insert(groupOrder, group)
+            end
+        end
+
+        table.sort(groupOrder, function(a, b)
+            if a:find("^FontMagic:") and not b:find("^FontMagic:") then return false end
+            if b:find("^FontMagic:") and not a:find("^FontMagic:") then return true end
+            return a < b
+        end)
+
+        for _, group in ipairs(groupOrder) do
+            table.sort(grouped[group], function(a, b)
+                return a.name:lower() < b.name:lower()
+            end)
+        end
+
+        return fontList, grouped, groupOrder
     end
 
     local function GetFriendlyFontDisplayName(path)
         local list = BuildFriendlyFontList()
         for _, item in ipairs(list) do
             if item.path == path then
-                return item.name
+                return item.group and (item.group .. " - " .. item.name) or item.name
             end
         end
         return "Custom/Unknown"
@@ -1121,19 +1223,76 @@ function addon:CreateSettingsPanel()
 
     UIDropDownMenu_Initialize(fontDropdown, function(self, level)
         local selected = addon.db.nameplateFriendlyNameFont or "Fonts\\FRIZQT__.TTF"
-        local list = BuildFriendlyFontList()
-        for _, item in ipairs(list) do
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = item.name
-            info.value = item.path
-            info.func = function(btn)
-                addon.db.nameplateFriendlyNameFont = btn.value
-                UIDropDownMenu_SetSelectedValue(fontDropdown, btn.value)
-                UIDropDownMenu_SetText(fontDropdown, item.name)
-                if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
+        local _, grouped, groupOrder = BuildFriendlyFontList()
+        local menuList = UIDROPDOWNMENU_MENU_VALUE
+
+        if level == 1 then
+            for _, group in ipairs(groupOrder) do
+                local fontsInGroup = grouped[group] or {}
+                if #fontsInGroup > 0 then
+                    local info = UIDropDownMenu_CreateInfo()
+                    info.text = group
+                    info.hasArrow = true
+                    info.notCheckable = true
+                    info.value = { kind = "group", group = group }
+                    UIDropDownMenu_AddButton(info, level)
+                end
             end
-            info.checked = (selected == item.path)
-            UIDropDownMenu_AddButton(info)
+            return
+        end
+
+        if level == 2 and type(menuList) == "table" and menuList.kind == "group" then
+            local group = menuList.group
+            local fontsInGroup = grouped[group] or {}
+            if #fontsInGroup > 24 then
+                local idx = 1
+                while idx <= #fontsInGroup do
+                    local finish = math.min(idx + 23, #fontsInGroup)
+                    local info = UIDropDownMenu_CreateInfo()
+                    info.text = string.format("%d-%d", idx, finish)
+                    info.hasArrow = true
+                    info.notCheckable = true
+                    info.value = { kind = "page", group = group, startIndex = idx, endIndex = finish }
+                    UIDropDownMenu_AddButton(info, level)
+                    idx = finish + 1
+                end
+            else
+                for _, item in ipairs(fontsInGroup) do
+                    local info = UIDropDownMenu_CreateInfo()
+                    info.text = item.name
+                    info.value = item.path
+                    info.func = function(btn)
+                        addon.db.nameplateFriendlyNameFont = btn.value
+                        UIDropDownMenu_SetSelectedValue(fontDropdown, btn.value)
+                        UIDropDownMenu_SetText(fontDropdown, GetFriendlyFontDisplayName(btn.value))
+                        if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
+                    end
+                    info.checked = (selected == item.path)
+                    UIDropDownMenu_AddButton(info, level)
+                end
+            end
+            return
+        end
+
+        if level == 3 and type(menuList) == "table" and menuList.kind == "page" then
+            local group = menuList.group
+            local fontsInGroup = grouped[group] or {}
+            for idx = menuList.startIndex, menuList.endIndex do
+                local item = fontsInGroup[idx]
+                if item then
+                    local info = UIDropDownMenu_CreateInfo()
+                    info.text = item.name
+                    info.value = item.path
+                    info.func = function(btn)
+                        addon.db.nameplateFriendlyNameFont = btn.value
+                        UIDropDownMenu_SetSelectedValue(fontDropdown, btn.value)
+                        UIDropDownMenu_SetText(fontDropdown, GetFriendlyFontDisplayName(btn.value))
+                        if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
+                    end
+                    info.checked = (selected == item.path)
+                    UIDropDownMenu_AddButton(info, level)
+                end
+            end
         end
     end)
 

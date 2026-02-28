@@ -192,6 +192,12 @@ function addon:ApplyFriendlyNameToFrame(frame)
     local r, g, b, a = self:GetFriendlyNameColor(unit)
     text:SetTextColor(r, g, b, a)
     text:SetText(name)
+
+    if (text:GetStringWidth() or 0) <= 0 then
+        text:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", fontSize, fontFlags)
+        text:SetText(name)
+    end
+
     text:Show()
 end
 
