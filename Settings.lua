@@ -1058,7 +1058,7 @@ function addon:CreateSettingsPanel()
         end
     end)
 
-    local npFriendlyPanel, npFriendlyTitle = CreateSection(tabNameplates, "Friendly Simplified Names", "Render readable names above simplified friendly player nameplates.", 440)
+    local npFriendlyPanel, npFriendlyTitle = CreateSection(tabNameplates, "Friendly Simplified Names", "Render readable names above simplified friendly player nameplates.", 470)
     local npFriendlyLeftInset = 10
 
     local npFriendlyEnabled = CreateFrame("CheckButton", nil, npFriendlyPanel, "InterfaceOptionsCheckButtonTemplate")
@@ -1070,8 +1070,17 @@ function addon:CreateSettingsPanel()
         if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
     end)
 
+    local npFriendlyShowTitle = CreateFrame("CheckButton", nil, npFriendlyPanel, "InterfaceOptionsCheckButtonTemplate")
+    npFriendlyShowTitle:SetPoint("TOPLEFT", npFriendlyEnabled, "BOTTOMLEFT", 0, -4)
+    npFriendlyShowTitle.Text:SetText("Show Title")
+    npFriendlyShowTitle:SetChecked(addon.db.nameplateFriendlyNamesShowTitle == true)
+    npFriendlyShowTitle:SetScript("OnClick", function(self)
+        addon.db.nameplateFriendlyNamesShowTitle = self:GetChecked()
+        if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
+    end)
+
     local fontLabel = npFriendlyPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    fontLabel:SetPoint("TOPLEFT", npFriendlyPanel, "TOPLEFT", npFriendlyLeftInset, -68)
+    fontLabel:SetPoint("TOPLEFT", npFriendlyPanel, "TOPLEFT", npFriendlyLeftInset, -96)
     fontLabel:SetText("Font")
 
     local fontDropdown = CreateFrame("Frame", "GUIT_FriendlyNameFontDropdown", npFriendlyPanel, "UIDropDownMenuTemplate")
@@ -1404,7 +1413,7 @@ function addon:CreateSettingsPanel()
     UIDropDownMenu_SetText(outlineDropdown, outlineText)
 
     local sizeSlider = CreateFrame("Slider", nil, npFriendlyPanel, "OptionsSliderTemplate")
-    sizeSlider:SetPoint("TOPLEFT", npFriendlyPanel, "TOPLEFT", npFriendlyLeftInset + 8, -204)
+    sizeSlider:SetPoint("TOPLEFT", npFriendlyPanel, "TOPLEFT", npFriendlyLeftInset + 8, -232)
     sizeSlider:SetMinMaxValues(8, 64)
     sizeSlider:SetValueStep(1)
     sizeSlider:SetObeyStepOnDrag(true)

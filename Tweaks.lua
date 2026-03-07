@@ -114,7 +114,7 @@ end
 function addon:GetOrCreateFriendlyNameText(frame)
     local anchor = self:GetFriendlyNameAnchorFrame(frame)
     if not anchor then
-        return nil
+        return nil, nil
     end
 
     if not anchor.GUITFriendlyNameText then
@@ -127,11 +127,21 @@ function addon:GetOrCreateFriendlyNameText(frame)
         anchor.GUITFriendlyNameText = text
     end
 
-    return anchor.GUITFriendlyNameText, anchor
+    if not anchor.GUITFriendlyTitleText then
+        local titleText = anchor:CreateFontString(nil, "OVERLAY")
+        titleText:SetDrawLayer("OVERLAY", 7)
+        titleText:SetWordWrap(false)
+        titleText:SetMaxLines(1)
+        titleText:SetShadowOffset(1, -1)
+        titleText:SetShadowColor(0, 0, 0, 1)
+        anchor.GUITFriendlyTitleText = titleText
+    end
+
+    return anchor.GUITFriendlyNameText, anchor.GUITFriendlyTitleText, anchor
 end
 
 function addon:ApplyFriendlyNameToFrame(frame)
-    local text, anchor = self:GetOrCreateFriendlyNameText(frame)
+    local text, titleText, anchor = self:GetOrCreateFriendlyNameText(frame)
     if not text or not anchor or not frame then
         return
     end
@@ -141,22 +151,50 @@ function addon:ApplyFriendlyNameToFrame(frame)
 
     if not unit then
         text:Hide()
+        if titleText then titleText:Hide() end
         return
     end
 
     if not enabled or not IsFriendlyPlayerUnit(unit) then
         text:Hide()
+        if titleText then titleText:Hide() end
         return
     end
 
     if UnitExists("target") and UnitIsUnit(unit, "target") then
         text:Hide()
+        if titleText then titleText:Hide() end
         return
     end
 
-    local name = GetUnitName(unit, false) or UnitName(unit)
-    if not name or name == "" then
+    local bottomText, topText
+    if self.db.nameplateFriendlyNamesShowTitle then
+        local pvpName = UnitPVPName(unit)
+        local baseName = GetUnitName(unit, false) or UnitName(unit)
+        if pvpName and baseName and pvpName ~= baseName then
+            if string.sub(pvpName, -#baseName) == baseName then
+                local title = string.sub(pvpName, 1, -(#baseName + 1))
+                title = string.match(title, "^%s*(.-)%s*$")
+                topText = title
+                bottomText = baseName
+            elseif string.sub(pvpName, 1, #baseName) == baseName then
+                local title = string.sub(pvpName, #baseName + 1)
+                title = string.match(title, "^[,%s]*(.-)%s*$")
+                topText = baseName
+                bottomText = title
+            else
+                bottomText = pvpName
+            end
+        else
+            bottomText = baseName
+        end
+    else
+        bottomText = GetUnitName(unit, false) or UnitName(unit)
+    end
+
+    if not bottomText or bottomText == "" then
         text:Hide()
+        if titleText then titleText:Hide() end
         return
     end
 
@@ -191,14 +229,44 @@ function addon:ApplyFriendlyNameToFrame(frame)
 
     local r, g, b, a = self:GetFriendlyNameColor(unit)
     text:SetTextColor(r, g, b, a)
-    text:SetText(name)
+    text:SetText(bottomText)
 
     if (text:GetStringWidth() or 0) <= 0 then
         text:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", fontSize, fontFlags)
-        text:SetText(name)
+        text:SetText(bottomText)
     end
 
     text:Show()
+    
+    if topText and titleText then
+        if not titleText:SetFont(fontPath, fontSize, fontFlags) then
+            titleText:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", fontSize, fontFlags)
+        end
+        titleText:SetWidth(width)
+        titleText:SetJustifyH(justify)
+        titleText:ClearAllPoints()
+        
+        local titleOffsetY = 2
+        if justify == "LEFT" then
+            titleText:SetPoint("BOTTOMLEFT", text, "TOPLEFT", 0, titleOffsetY)
+        elseif justify == "RIGHT" then
+            titleText:SetPoint("BOTTOMRIGHT", text, "TOPRIGHT", 0, titleOffsetY)
+        else
+            titleText:SetPoint("BOTTOM", text, "TOP", 0, titleOffsetY)
+        end
+        
+        titleText:SetTextColor(r, g, b, a)
+        titleText:SetText(topText)
+        
+        if (titleText:GetStringWidth() or 0) <= 0 then
+            titleText:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", fontSize, fontFlags)
+            titleText:SetText(topText)
+        end
+        
+        titleText:Show()
+    elseif titleText then
+        titleText:Hide()
+    end
 end
 
 function addon:ApplyScaleToFrame(frame)
