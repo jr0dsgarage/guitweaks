@@ -214,9 +214,8 @@ function addon:ApplyFriendlyNameToFrame(frame)
     local justify = (self.db.nameplateFriendlyNameJustify or "CENTER"):upper()
     local offsetX = self.db.nameplateFriendlyNameOffsetX or 0
     local offsetY = self.db.nameplateFriendlyNameOffsetY or 10
-    local width = math.max((anchor:GetWidth() or 80) + 90, 120)
 
-    text:SetWidth(width)
+    text:SetWidth(0)
     text:SetJustifyH(justify)
     text:ClearAllPoints()
     if justify == "LEFT" then
@@ -242,7 +241,7 @@ function addon:ApplyFriendlyNameToFrame(frame)
         if not titleText:SetFont(fontPath, fontSize, fontFlags) then
             titleText:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", fontSize, fontFlags)
         end
-        titleText:SetWidth(width)
+        titleText:SetWidth(0)
         titleText:SetJustifyH(justify)
         titleText:ClearAllPoints()
         
