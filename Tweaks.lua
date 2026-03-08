@@ -170,19 +170,41 @@ function addon:ApplyFriendlyNameToFrame(frame)
     local bottomText, topText
     if self.db.nameplateFriendlyNamesShowTitle then
         local pvpName = UnitPVPName(unit)
-        local baseName = GetUnitName(unit, false) or UnitName(unit)
-        if pvpName and baseName and pvpName ~= baseName then
-            if string.sub(pvpName, -#baseName) == baseName then
-                local title = string.sub(pvpName, 1, -(#baseName + 1))
-                title = string.match(title, "^%s*(.-)%s*$")
-                topText = title
-                bottomText = baseName
-            elseif string.sub(pvpName, 1, #baseName) == baseName then
-                local title = string.sub(pvpName, #baseName + 1)
-                title = string.match(title, "^[,%s]*(.-)%s*$")
-                topText = baseName
-                bottomText = title
+        local unitName, unitRealm = UnitName(unit)
+        local baseName = unitName or ""
+        local matchName = baseName
+        if unitRealm and unitRealm ~= "" then
+            matchName = baseName .. "-" .. unitRealm
+        end
+        
+        if pvpName and pvpName ~= "" and matchName ~= "" then
+            local s, e = string.find(pvpName, matchName, 1, true)
+            if s then
+                if s > 1 then
+                    -- Title is a prefix
+                    local title = string.sub(pvpName, 1, s - 1)
+                    title = string.match(title, "^[%s,]*(.-)[%s,]*$")
+                    if title and title ~= "" then
+                        topText = title
+                        bottomText = baseName
+                    else
+                        bottomText = baseName
+                    end
+                elseif e < #pvpName then
+                    -- Title is a suffix
+                    local title = string.sub(pvpName, e + 1)
+                    title = string.match(title, "^[%s,]*(.-)[%s,]*$")
+                    if title and title ~= "" then
+                        topText = baseName
+                        bottomText = title
+                    else
+                        bottomText = baseName
+                    end
+                else
+                    bottomText = baseName
+                end
             else
+                -- Fallback if exact match fails
                 bottomText = pvpName
             end
         else
@@ -293,6 +315,9 @@ end
 function addon:RefreshSingleNameplate(unitOrFrame)
     local frame = unitOrFrame
     if type(unitOrFrame) == "string" then
+        if string.match(unitOrFrame, "^boss%d*$") then
+            return -- Boss unit tokens are not allowed for GetNamePlateForUnit
+        end
         frame = C_NamePlate and C_NamePlate.GetNamePlateForUnit and C_NamePlate.GetNamePlateForUnit(unitOrFrame)
     end
 
