@@ -67,6 +67,8 @@ local defaults = {
         nameplateFriendlyNameOffsetX = 0,
         nameplateFriendlyNameOffsetY = 10,
         nameplateFriendlyNameJustify = "CENTER",
+        encounterBarPreyPercentEnabled = false,
+        professionRecipeQualityColorEnabled = true,
     }
 }
 

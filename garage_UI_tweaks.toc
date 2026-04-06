@@ -13,5 +13,6 @@ SpeedPanel.lua
 PersonalResourceDisplay.lua
 ChatTweaks.lua
 Tweaks.lua
+ProfessionRecipeColors.lua
 BackgroundPanel.lua
 Settings.lua

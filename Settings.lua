@@ -259,7 +259,32 @@ function addon:CreateSettingsPanel()
         addon.db.overrideActionBarYOffset = value
         addon:UpdateOverrideActionBar()
     end)
-    
+
+    -- Encounter Bar Prey %
+    local encounterBarGroup, encounterBarTitle = CreateSection(tabGeneral, "Encounter Bar", "Show the prey's health percentage on the encounter bar when hunting prey in outdoor zones.", 80)
+
+    local encounterPercentCheck = CreateFrame("CheckButton", nil, encounterBarGroup, "InterfaceOptionsCheckButtonTemplate")
+    encounterPercentCheck:SetPoint("TOPLEFT", encounterBarTitle, "BOTTOMLEFT", 0, -10)
+    encounterPercentCheck.Text:SetText("Show prey encounter percentage")
+    encounterPercentCheck:SetChecked(addon.db.encounterBarPreyPercentEnabled)
+    encounterPercentCheck:SetScript("OnClick", function(self)
+        addon.db.encounterBarPreyPercentEnabled = self:GetChecked()
+        addon:InitEncounterBarPreyPercent()
+    end)
+
+    -- Profession Recipe Colors
+    local professionColorsGroup, professionColorsTitle = CreateSection(tabGeneral, "Profession Recipe Colors", "Color recipe names by the quality of the crafted item in profession recipe lists.", 80)
+
+    local professionColorsCheck = CreateFrame("CheckButton", nil, professionColorsGroup, "InterfaceOptionsCheckButtonTemplate")
+    professionColorsCheck:SetPoint("TOPLEFT", professionColorsTitle, "BOTTOMLEFT", 0, -10)
+    professionColorsCheck.Text:SetText("Enable recipe quality colors")
+    professionColorsCheck:SetChecked(addon.db.professionRecipeQualityColorEnabled ~= false)
+    professionColorsCheck:SetScript("OnClick", function(self)
+        addon.db.professionRecipeQualityColorEnabled = self:GetChecked()
+        if addon.SetProfessionRecipeQualityColorEnabled then
+            addon:SetProfessionRecipeQualityColorEnabled(addon.db.professionRecipeQualityColorEnabled)
+        end
+    end)
 
     -- ====================
     -- CHAT TAB
