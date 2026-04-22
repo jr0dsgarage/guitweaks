@@ -28,102 +28,72 @@ function addon:CreateSettingsPanel()
         print("|cff00ff00Garage UI Tweaks:|r " .. (addon.db.enabled and "Enabled" or "Disabled"))
     end)
 
-    -- Tabs Container
-    local tabContainer = CreateFrame("Frame", nil, panel)
-    tabContainer:SetPoint("TOPLEFT", enabledCheckbox, "BOTTOMLEFT", 0, -20)
-    tabContainer:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -16, 16)
-    
-    -- Tab Content Frames
-    local tabs = {}
-    local currentTab = nil
+    local overview = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    overview:SetPoint("TOPLEFT", enabledCheckbox, "BOTTOMLEFT", 4, -12)
+    overview:SetPoint("RIGHT", panel, "RIGHT", -24, 0)
+    overview:SetJustifyH("LEFT")
+    overview:SetText("Expand Garage UI Tweaks in the Settings list to open individual tweak pages.")
 
-    local function ShowTab(tabID)
-        for id, tab in pairs(tabs) do
-            if id == tabID then
-                tab.frame:Show()
-                if PanelTemplates_SelectTab then
-                    PanelTemplates_SelectTab(tab.button)
-                else
-                    tab.button:LockHighlight()
-                    tab.button:Disable() -- Traditional tab behavior
-                    if tab.button.SetChecked then tab.button:SetChecked(true) end
-                end
-                
-                -- Trigger refresh if needed
-                if id == "background" and addon.RefreshSettings then
-                    addon:RefreshSettings("background")
-                end
-            else
-                tab.frame:Hide()
-                if PanelTemplates_DeselectTab then
-                    PanelTemplates_DeselectTab(tab.button)
-                else
-                    tab.button:UnlockHighlight()
-                    tab.button:Enable()
-                    if tab.button.SetChecked then tab.button:SetChecked(false) end
-                end
-            end
-        end
-        currentTab = tabID
-    end
+    local orderedPages = {}
 
-    local function CreateTabButton(id, text, index)
-        -- Using PanelTopTabButtonTemplate for the 'Tab' look
-        local btnName = "GarageUITweaksTab" .. index
-        local btn = CreateFrame("Button", btnName, panel, "PanelTopTabButtonTemplate")
-        btn:SetID(index)
-        btn:SetText(text)
-        
-        -- Position tabs relative to tabContainer or previously created tab
-        -- Standard tab placement is usually tied to the panel top or bottom of previous element
-        if index == 1 then
-             btn:SetPoint("BOTTOMLEFT", tabContainer, "TOPLEFT", 6, -2)
-        else
-             local prevTab = tabs[tabs[index-1]] -- Need ordered access, but tabs is hash map? No, I control insertion
-             -- Actually, simple positioning based on index works if we assume order
-             -- But since tabs is keyed by ID string, let's just use strict positioning
-             btn:SetPoint("LEFT", _G["GarageUITweaksTab" .. (index - 1)], "RIGHT", 2, 0)
-        end
+    local function CreateSettingsPage(id, pageTitle, pageDescription)
+        local frameName = "GarageUITweaksSettingsPage_" .. id
+        local page = CreateFrame("Frame", frameName, UIParent)
+        page.name = pageTitle
+        page.parent = panel.name
 
-        -- Resize to fit text
-        if PanelTemplates_TabResize then
-            PanelTemplates_TabResize(btn, 0)
-        else
-            local textWidth = btn:GetFontString():GetStringWidth()
-            btn:SetWidth(textWidth + 20)
-        end
-        
-        local content = CreateFrame("Frame", nil, tabContainer)
-        content:SetAllPoints()
-        content:Hide()
+        local titleText = page:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+        titleText:SetPoint("TOPLEFT", 16, -16)
+        titleText:SetText(pageTitle)
 
-        -- Add scroll frame support for content
-        local scrollFrame = CreateFrame("ScrollFrame", nil, content, "UIPanelScrollFrameTemplate")
-        scrollFrame:SetPoint("TOPLEFT", 0, 0)
-        scrollFrame:SetPoint("BOTTOMRIGHT", -26, 0)
-        
+        local descText = page:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+        descText:SetPoint("TOPLEFT", titleText, "BOTTOMLEFT", 0, -8)
+        descText:SetPoint("RIGHT", page, "RIGHT", -16, 0)
+        descText:SetJustifyH("LEFT")
+        descText:SetText(pageDescription or "")
+
+        local scrollFrame = CreateFrame("ScrollFrame", nil, page, "UIPanelScrollFrameTemplate")
+        scrollFrame:SetPoint("TOPLEFT", descText, "BOTTOMLEFT", 0, -12)
+        scrollFrame:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -32, 12)
+
         local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-        scrollChild:SetWidth(tabContainer:GetWidth() - 26)
-        scrollChild:SetHeight(1) -- Will grow
+        scrollChild:SetHeight(1)
+        scrollChild:SetWidth(1)
         scrollFrame:SetScrollChild(scrollChild)
 
         scrollFrame:SetScript("OnSizeChanged", function(self)
             scrollChild:SetWidth(self:GetWidth())
         end)
 
-        btn:SetScript("OnClick", function() ShowTab(id) end)
+        if id == "background" then
+            page:SetScript("OnShow", function()
+                if addon.RefreshSettings then
+                    addon:RefreshSettings("background")
+                end
+            end)
+        end
 
-        tabs[id] = { button = btn, frame = content, scrollChild = scrollChild, totalHeight = 0, lastSection = nil }
-        return tabs[id]
+        local pageInfo = {
+            id = id,
+            name = pageTitle,
+            frame = page,
+            scrollChild = scrollChild,
+            totalHeight = 0,
+            lastSection = nil,
+        }
+
+        table.insert(orderedPages, pageInfo)
+        return pageInfo
     end
 
-    -- Tab Definitions
-    local tabGeneral = CreateTabButton("general", "General Tweaks", 1)
-    local tabChat = CreateTabButton("chat", "Chat Tweaks", 2)
-    local tabSpeed = CreateTabButton("speed", "Speed Tweaks", 3)
-    local tabPRD = CreateTabButton("prd", "PRD Tweaks", 4)
-    local tabNameplates = CreateTabButton("nameplates", "Nameplate Tweaks", 5)
-    local tabBackground = CreateTabButton("background", "Background", 6)
+    -- Page Definitions
+    local tabGeneral = CreateSettingsPage("general", "General Tweaks", "Core quality-of-life improvements and shared behavior.")
+    local tabChat = CreateSettingsPage("chat", "Chat Tweaks", "Customize chat behavior and chat frame controls.")
+    local tabSpeed = CreateSettingsPage("speed", "Speed Tweaks", "Configure movement speed display options.")
+    local tabPRD = CreateSettingsPage("prd", "PRD Tweaks", "Manage Personal Resource Display appearance and behavior.")
+    local tabNameplates = CreateSettingsPage("nameplates", "Nameplate Tweaks", "Configure friendly nameplate appearance and scaling.")
+    local tabBackground = CreateSettingsPage("background", "Background", "Background panel and visual backdrop options.")
+    local tabCrafting = CreateSettingsPage("crafting", "Crafting Tweaks", "Crafting-specific UI tweaks and persistence options.")
 
     -- Helper to add sections to a tab
     local function CreateSection(tab, titleText, descriptionText, height)
@@ -270,20 +240,6 @@ function addon:CreateSettingsPanel()
     encounterPercentCheck:SetScript("OnClick", function(self)
         addon.db.encounterBarPreyPercentEnabled = self:GetChecked()
         addon:InitEncounterBarPreyPercent()
-    end)
-
-    -- Profession Recipe Colors
-    local professionColorsGroup, professionColorsTitle = CreateSection(tabGeneral, "Profession Recipe Colors", "Color recipe names by the quality of the crafted item in profession recipe lists.", 80)
-
-    local professionColorsCheck = CreateFrame("CheckButton", nil, professionColorsGroup, "InterfaceOptionsCheckButtonTemplate")
-    professionColorsCheck:SetPoint("TOPLEFT", professionColorsTitle, "BOTTOMLEFT", 0, -10)
-    professionColorsCheck.Text:SetText("Enable recipe quality colors")
-    professionColorsCheck:SetChecked(addon.db.professionRecipeQualityColorEnabled ~= false)
-    professionColorsCheck:SetScript("OnClick", function(self)
-        addon.db.professionRecipeQualityColorEnabled = self:GetChecked()
-        if addon.SetProfessionRecipeQualityColorEnabled then
-            addon:SetProfessionRecipeQualityColorEnabled(addon.db.professionRecipeQualityColorEnabled)
-        end
     end)
 
     -- ====================
@@ -1524,30 +1480,100 @@ function addon:CreateSettingsPanel()
     UIDropDownMenu_SetSelectedValue(justifyDropdown, selectedJustify)
     UIDropDownMenu_SetText(justifyDropdown, justifyText)
 
-    -- Initialization
-    ShowTab("general")
+    -- ====================
+    -- CRAFTING TWEAKS TAB
+    -- ====================
+    local craftingOrderSection, craftingOrderTitle = CreateSection(tabCrafting, "Crafting Order Filters", "Remember the recipe filter settings on the Crafting Orders tab per profession.", 170)
 
-    -- Add to Interface Options
+    local rememberFiltersCheck = CreateFrame("CheckButton", nil, craftingOrderSection, "InterfaceOptionsCheckButtonTemplate")
+    rememberFiltersCheck:SetPoint("TOPLEFT", craftingOrderTitle, "BOTTOMLEFT", 0, -12)
+    rememberFiltersCheck.Text:SetText("Remember filters per profession (Have Materials, etc.)")
+    rememberFiltersCheck:SetChecked(addon.db.rememberCraftingOrderFilters ~= false)
+    rememberFiltersCheck:SetScript("OnClick", function(self)
+        addon.db.rememberCraftingOrderFilters = self:GetChecked()
+        if addon.SetCraftingOrderFilterMemoryEnabled then
+            addon:SetCraftingOrderFilterMemoryEnabled(addon.db.rememberCraftingOrderFilters)
+        end
+    end)
+
+    local rememberFiltersInfo = craftingOrderSection:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    rememberFiltersInfo:SetPoint("TOPLEFT", rememberFiltersCheck, "BOTTOMLEFT", 4, -4)
+    rememberFiltersInfo:SetWidth(420)
+    rememberFiltersInfo:SetJustifyH("LEFT")
+    rememberFiltersInfo:SetText("Each profession saves its own filter set. Filters are restored the first time you open the Orders tab in a new session.")
+
+    local professionColorsCheck = CreateFrame("CheckButton", nil, craftingOrderSection, "InterfaceOptionsCheckButtonTemplate")
+    professionColorsCheck:SetPoint("TOPLEFT", rememberFiltersInfo, "BOTTOMLEFT", -4, -16)
+    professionColorsCheck.Text:SetText("Enable recipe quality colors")
+    professionColorsCheck:SetChecked(addon.db.professionRecipeQualityColorEnabled ~= false)
+    professionColorsCheck:SetScript("OnClick", function(self)
+        addon.db.professionRecipeQualityColorEnabled = self:GetChecked()
+        if addon.SetProfessionRecipeQualityColorEnabled then
+            addon:SetProfessionRecipeQualityColorEnabled(addon.db.professionRecipeQualityColorEnabled)
+        end
+    end)
+
+    local professionColorsInfo = craftingOrderSection:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    professionColorsInfo:SetPoint("TOPLEFT", professionColorsCheck, "BOTTOMLEFT", 4, -4)
+    professionColorsInfo:SetWidth(420)
+    professionColorsInfo:SetJustifyH("LEFT")
+    professionColorsInfo:SetText("Color recipe names by the quality of the crafted item in profession recipe lists.")
+
+    addon.settingsPanel = panel
+    addon.settingsPages = addon.settingsPages or {}
+    for _, page in ipairs(orderedPages) do
+        addon.settingsPages[page.id] = page
+    end
+
+    -- Add to Interface Options as parent + subpages (Macro Toolkit style)
     if Settings and Settings.RegisterCanvasLayoutCategory then
         local category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
         Settings.RegisterAddOnCategory(category)
         addon.settingsCategory = category
+        addon.settingsSubcategories = addon.settingsSubcategories or {}
+
+        for _, page in ipairs(orderedPages) do
+            local sub = Settings.RegisterCanvasLayoutSubcategory(category, page.frame, page.name)
+            addon.settingsSubcategories[page.id] = sub
+        end
     else
         InterfaceOptions_AddCategory(panel)
+        for _, page in ipairs(orderedPages) do
+            page.frame.parent = panel.name
+            page.frame.name = page.name
+            InterfaceOptions_AddCategory(page.frame)
+        end
     end
-    addon.settingsPanel = panel
 end
 
 -- Open settings panel (Helper)
 function addon:OpenSettings()
     if not self.settingsPanel then self:CreateSettingsPanel() end
+
+    local defaultPageID = "general"
+    local defaultPage = self.settingsPages and self.settingsPages[defaultPageID]
+
     if Settings and Settings.OpenToCategory then
-        local id = self.settingsCategory and self.settingsCategory:GetID()
-        if not id then id = Settings.GetCategory("Garage UI Tweaks"):GetID() end
+        local targetCategory = self.settingsSubcategories and self.settingsSubcategories[defaultPageID]
+        if not targetCategory then
+            targetCategory = self.settingsCategory
+        end
+
+        local id = targetCategory and targetCategory:GetID()
+        if not id then
+            local fallbackCategory = Settings.GetCategory("Garage UI Tweaks")
+            id = fallbackCategory and fallbackCategory:GetID() or nil
+        end
+
+        if not id then
+            return
+        end
+
         Settings.OpenToCategory(id)
     elseif InterfaceOptionsFrame_OpenToCategory then
-        InterfaceOptionsFrame_OpenToCategory(self.settingsPanel)
-        InterfaceOptionsFrame_OpenToCategory(self.settingsPanel)
+        local targetPanel = (defaultPage and defaultPage.frame) or self.settingsPanel
+        InterfaceOptionsFrame_OpenToCategory(targetPanel)
+        InterfaceOptionsFrame_OpenToCategory(targetPanel)
     end
 end
 

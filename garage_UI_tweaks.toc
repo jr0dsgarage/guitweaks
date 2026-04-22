@@ -1,8 +1,9 @@
-## Interface: 120000
+## Interface: 120005
 ## Title: Garage UI Tweaks
 ## Notes: Customizable UI tweaks for World of Warcraft
 ## Author: j__r0d
 ## Version: 1.0.0
+## Category-enUS: j__r0d's garage
 ## SavedVariables: GarageUITweaksDB
 
 Core.lua
@@ -15,4 +16,5 @@ ChatTweaks.lua
 Tweaks.lua
 ProfessionRecipeColors.lua
 BackgroundPanel.lua
+CraftingTweaks.lua
 Settings.lua

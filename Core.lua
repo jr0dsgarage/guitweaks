@@ -69,6 +69,8 @@ local defaults = {
         nameplateFriendlyNameJustify = "CENTER",
         encounterBarPreyPercentEnabled = false,
         professionRecipeQualityColorEnabled = true,
+        rememberCraftingOrderFilters = true,
+        craftingOrderFilters = {},
     }
 }
 

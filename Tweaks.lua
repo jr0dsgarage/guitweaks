@@ -315,10 +315,23 @@ end
 function addon:RefreshSingleNameplate(unitOrFrame)
     local frame = unitOrFrame
     if type(unitOrFrame) == "string" then
-        if string.match(unitOrFrame, "^boss%d*$") then
-            return -- Boss unit tokens are not allowed for GetNamePlateForUnit
+        if string.match(unitOrFrame, "^boss%d*$")
+            or string.match(unitOrFrame, "^party%d+$")
+            or string.match(unitOrFrame, "^raid%d+$")
+        then
+            return -- Restricted unit tokens are not allowed for GetNamePlateForUnit
         end
-        frame = C_NamePlate and C_NamePlate.GetNamePlateForUnit and C_NamePlate.GetNamePlateForUnit(unitOrFrame)
+
+        if C_NamePlate and C_NamePlate.GetNamePlateForUnit then
+            local ok, result = pcall(C_NamePlate.GetNamePlateForUnit, unitOrFrame)
+            if ok then
+                frame = result
+            else
+                return
+            end
+        else
+            frame = nil
+        end
     end
 
     if not frame then
