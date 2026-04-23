@@ -169,9 +169,9 @@ function addon:ApplyFriendlyNameToFrame(frame)
 
     local bottomText, topText
     if self.db.nameplateFriendlyNamesShowTitle then
-        local pvpName = UnitPVPName(unit)
         local unitName, unitRealm = UnitName(unit)
         local baseName = unitName or ""
+        local pvpName = UnitPVPName(unit, baseName)
         local matchName = baseName
         if unitRealm and unitRealm ~= "" then
             matchName = baseName .. "-" .. unitRealm
@@ -468,9 +468,8 @@ local _preyWidgetVizGetters = nil
 local _ExtractProgressPercent
 
 local function _PlayerHasPreyHuntBuff()
-    if AuraUtil and AuraUtil.FindAuraByName then
-        local aura = AuraUtil.FindAuraByName(_PREY_HUNT_BUFF_NAME, "player", "HELPFUL")
-        return aura ~= nil
+    if C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName then
+        return C_UnitAuras.GetAuraDataBySpellName("player", _PREY_HUNT_BUFF_NAME) ~= nil
     end
 
     for i = 1, 40 do

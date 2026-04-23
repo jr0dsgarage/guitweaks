@@ -204,56 +204,88 @@ local function chooseBaseline(...)
     return baseline or BASE_RUN_SPEED
 end
 
+-- GetUnitSpeed can return protected/secret numeric values under taint.
+-- Use pcall-based coercion so all downstream math uses plain Lua numbers.
+local function coerceSpeedValue(value, fallback)
+    if value == nil then
+        return fallback or 0
+    end
+
+    local ok, numeric = pcall(tonumber, value)
+    if ok and type(numeric) == "number" then
+        return numeric
+    end
+
+    ok, numeric = pcall(function()
+        return value + 0
+    end)
+    if ok and type(numeric) == "number" then
+        return numeric
+    end
+
+    return fallback or 0
+end
+
 local function getPlayerSpeed()
     if not GetUnitSpeed then
         local fallback = computeFallbackSpeed(true)
         return fallback or 0, BASE_RUN_SPEED, 0, 0, 0, fallback or 0
     end
 
-    local current, runSpeed, flightSpeed, swimSpeed = GetUnitSpeed("player")
+    local ok, current, baseline, runSpeed, flightSpeed, swimSpeed, fallback = pcall(function()
+        local rawCurrent, rawRunSpeed, rawFlightSpeed, rawSwimSpeed = GetUnitSpeed("player")
+        local localCurrent = coerceSpeedValue(rawCurrent, 0)
+        local localRunSpeed = coerceSpeedValue(rawRunSpeed, 0)
+        local localFlightSpeed = coerceSpeedValue(rawFlightSpeed, 0)
+        local localSwimSpeed = coerceSpeedValue(rawSwimSpeed, 0)
 
-    if UnitInVehicle and UnitInVehicle("player") and UnitExists and UnitExists("vehicle") then
-        local vehCurrent, vehRun, vehFlight, vehSwim = GetUnitSpeed("vehicle")
-        if type(vehCurrent) == "number" and vehCurrent > (current or 0) then
-            current = vehCurrent
+        if UnitInVehicle and UnitInVehicle("player") and UnitExists and UnitExists("vehicle") then
+            local vehCurrent, vehRun, vehFlight, vehSwim = GetUnitSpeed("vehicle")
+            vehCurrent = coerceSpeedValue(vehCurrent, 0)
+            vehRun = coerceSpeedValue(vehRun, 0)
+            vehFlight = coerceSpeedValue(vehFlight, 0)
+            vehSwim = coerceSpeedValue(vehSwim, 0)
+
+            if vehCurrent > localCurrent then
+                localCurrent = vehCurrent
+            end
+            if vehRun > localRunSpeed then
+                localRunSpeed = vehRun
+            end
+            if vehFlight > localFlightSpeed then
+                localFlightSpeed = vehFlight
+            end
+            if vehSwim > localSwimSpeed then
+                localSwimSpeed = vehSwim
+            end
         end
-        if type(vehRun) == "number" and vehRun > (runSpeed or 0) then
-            runSpeed = vehRun
+
+        if localCurrent < 0 then
+            localCurrent = 0
         end
-        if type(vehFlight) == "number" and vehFlight > (flightSpeed or 0) then
-            flightSpeed = vehFlight
+
+        local localBaseline = chooseBaseline(localRunSpeed, localFlightSpeed, localSwimSpeed, BASE_RUN_SPEED)
+        local localFallback
+
+        if (localCurrent <= 0.1) and (
+            (IsFlying and IsFlying()) or
+            (UnitInVehicle and UnitInVehicle("player"))
+        ) then
+            localFallback = computeFallbackSpeed(true)
+            if localFallback and localFallback > localCurrent then
+                localCurrent = localFallback
+            end
         end
-        if type(vehSwim) == "number" and vehSwim > (swimSpeed or 0) then
-            swimSpeed = vehSwim
-        end
+
+        return localCurrent, localBaseline, localRunSpeed, localFlightSpeed, localSwimSpeed, localFallback
+    end)
+
+    if ok then
+        return current, baseline, runSpeed, flightSpeed, swimSpeed, fallback
     end
 
-    if type(current) ~= "number" then
-        current = 0
-    end
-
-    if current < 0 then
-        current = 0
-    end
-
-    runSpeed = type(runSpeed) == "number" and runSpeed or 0
-    flightSpeed = type(flightSpeed) == "number" and flightSpeed or 0
-    swimSpeed = type(swimSpeed) == "number" and swimSpeed or 0
-
-    local baseline = chooseBaseline(runSpeed, flightSpeed, swimSpeed, BASE_RUN_SPEED)
-
-    local fallback
-    if (current <= 0.1) and (
-        (IsFlying and IsFlying()) or
-        (UnitInVehicle and UnitInVehicle("player"))
-    ) then
-        fallback = computeFallbackSpeed(true)
-        if fallback and fallback > current then
-            current = fallback
-        end
-    end
-
-    return current, baseline, runSpeed, flightSpeed, swimSpeed, fallback
+    local safeFallback = computeFallbackSpeed(true)
+    return safeFallback or 0, BASE_RUN_SPEED, 0, 0, 0, safeFallback or 0
 end
 
 function addon:DebugSpeedPanel(current, baseline, runSpeed, flightSpeed, swimSpeed, fallback)
