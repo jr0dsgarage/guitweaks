@@ -169,13 +169,11 @@ function addon:ApplyFriendlyNameToFrame(frame)
 
     local bottomText, topText
     if self.db.nameplateFriendlyNamesShowTitle then
-        local unitName, unitRealm = UnitName(unit)
+        local unitName = UnitName(unit)
         local baseName = unitName or ""
         local pvpName = UnitPVPName(unit, baseName)
+        -- Avoid realm-string comparisons here; UnitName's realm can be a secret value in tainted execution.
         local matchName = baseName
-        if unitRealm and unitRealm ~= "" then
-            matchName = baseName .. "-" .. unitRealm
-        end
         
         if pvpName and pvpName ~= "" and matchName ~= "" then
             local s, e = string.find(pvpName, matchName, 1, true)
