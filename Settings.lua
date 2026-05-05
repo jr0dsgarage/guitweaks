@@ -192,7 +192,7 @@ function addon:CreateSettingsPanel()
 
 
     -- Map Scale
-    local bgMapScale, bgMapTitle = CreateSection(tabGeneral, "Battleground Map Scale", "Adjust the battlefield map size (Shift+M).", 100)
+    local bgMapScale, bgMapTitle = CreateSection(tabGeneral, "Battleground Map Scale", "Adjust the battlefield map size (Shift+M).", 130)
     
     local scaleSlider = CreateFrame("Slider", nil, bgMapScale, "OptionsSliderTemplate")
     scaleSlider:SetPoint("TOPLEFT", bgMapTitle, "BOTTOMLEFT", 0, -28)
@@ -206,6 +206,27 @@ function addon:CreateSettingsPanel()
         value = math.floor(value * 10 + 0.5) / 10
         self.Text:SetText(string.format("Scale: %.0f%%", value * 100))
         addon.db.battlegroundMapScale = value
+        addon:ApplyTweaks()
+    end)
+
+    local mapLowestStrataCheckbox = CreateFrame("CheckButton", nil, bgMapScale, "InterfaceOptionsCheckButtonTemplate")
+    mapLowestStrataCheckbox:SetPoint("TOPLEFT", scaleSlider, "BOTTOMLEFT", 0, -10)
+    mapLowestStrataCheckbox.Text:SetText("Force map to lowest strata")
+    mapLowestStrataCheckbox:SetChecked(addon.db.battlegroundMapForceLowestStrata)
+    mapLowestStrataCheckbox:SetScript("OnClick", function(self)
+        addon.db.battlegroundMapForceLowestStrata = self:GetChecked()
+        addon:ApplyTweaks()
+    end)
+
+    -- Experience Bars
+    local expBarStrataGroup, expBarStrataTitle = CreateSection(tabGeneral, "Experience Bars", "Adjust strata behavior for XP/reputation/honor tracking bars.", 80)
+
+    local expBarHighestStrataCheckbox = CreateFrame("CheckButton", nil, expBarStrataGroup, "InterfaceOptionsCheckButtonTemplate")
+    expBarHighestStrataCheckbox:SetPoint("TOPLEFT", expBarStrataTitle, "BOTTOMLEFT", 0, -10)
+    expBarHighestStrataCheckbox.Text:SetText("Force experience bars to highest strata")
+    expBarHighestStrataCheckbox:SetChecked(addon.db.experienceBarsForceHighestStrata)
+    expBarHighestStrataCheckbox:SetScript("OnClick", function(self)
+        addon.db.experienceBarsForceHighestStrata = self:GetChecked()
         addon:ApplyTweaks()
     end)
 

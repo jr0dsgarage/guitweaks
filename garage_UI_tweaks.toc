@@ -14,6 +14,7 @@ SpeedPanel.lua
 PersonalResourceDisplay.lua
 ChatTweaks.lua
 Tweaks.lua
+RaidPartyFrames.lua
 ProfessionRecipeColors.lua
 BackgroundPanel.lua
 CraftingTweaks.lua

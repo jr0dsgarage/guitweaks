@@ -2,12 +2,32 @@
 -- Garage UI Tweaks - Battleground Map
 local addonName, addon = ...
 
+local function ApplyBattlegroundMapOptions()
+    if not BattlefieldMapFrame or not addon.db then
+        return
+    end
+
+    BattlefieldMapFrame:SetScale(addon.db.battlegroundMapScale or 1.0)
+
+    if addon.originalBattlegroundMapStrata == nil then
+        addon.originalBattlegroundMapStrata = BattlefieldMapFrame:GetFrameStrata() or "MEDIUM"
+    end
+
+    if addon.db.battlegroundMapForceLowestStrata then
+        BattlefieldMapFrame:SetFrameStrata("BACKGROUND")
+    else
+        BattlefieldMapFrame:SetFrameStrata(addon.originalBattlegroundMapStrata)
+    end
+end
+
 function addon:SetBattlegroundMapScale(scale)
     scale = scale or 1.0
 
-    if BattlefieldMapFrame then
-        BattlefieldMapFrame:SetScale(scale)
+    if addon.db then
+        addon.db.battlegroundMapScale = scale
     end
+
+    ApplyBattlegroundMapOptions()
 
     if addon.battlegroundMapHooked then
         return
@@ -17,9 +37,7 @@ function addon:SetBattlegroundMapScale(scale)
     frame:RegisterEvent("PLAYER_ENTERING_BATTLEGROUND")
     frame:SetScript("OnEvent", function()
         C_Timer.After(0.1, function()
-            if BattlefieldMapFrame and addon.db and addon.db.battlegroundMapScale then
-                BattlefieldMapFrame:SetScale(addon.db.battlegroundMapScale)
-            end
+            ApplyBattlegroundMapOptions()
         end)
     end)
 

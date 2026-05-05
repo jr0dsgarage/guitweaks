@@ -388,6 +388,86 @@ function addon:UpdateFriendlyNameplates()
     end
 end
 
+local function CollectExperienceBarFrames()
+    local frames = {}
+
+    local function AddFrame(frame)
+        if frame and frame.GetFrameStrata and frame.SetFrameStrata then
+            frames[frame] = true
+        end
+    end
+
+    AddFrame(_G.MainStatusTrackingBarContainer)
+    AddFrame(_G.StatusTrackingBarManager)
+    AddFrame(_G.MainMenuBarExpBar)
+    AddFrame(_G.MainMenuExpBar)
+    AddFrame(_G.MainMenuBarMaxLevelBar)
+    AddFrame(_G.ReputationWatchBar)
+    AddFrame(_G.HonorWatchBar)
+    AddFrame(_G.ArtifactWatchBar)
+    AddFrame(_G.AzeriteBarContainer)
+
+    local containers = {
+        _G.MainStatusTrackingBarContainer,
+        _G.StatusTrackingBarManager,
+    }
+
+    for _, container in ipairs(containers) do
+        if container and container.GetChildren then
+            for _, child in ipairs({ container:GetChildren() }) do
+                AddFrame(child)
+            end
+        end
+    end
+
+    return frames
+end
+
+function addon:EnsureExperienceBarStrataHooks()
+    if self.experienceBarStrataEventFrame then
+        return
+    end
+
+    local frame = CreateFrame("Frame")
+    frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    frame:RegisterEvent("PLAYER_XP_UPDATE")
+    frame:RegisterEvent("UPDATE_EXHAUSTION")
+    frame:RegisterEvent("UPDATE_FACTION")
+    frame:RegisterEvent("HONOR_XP_UPDATE")
+    frame:SetScript("OnEvent", function()
+        C_Timer.After(0, function()
+            if addon and addon.ApplyExperienceBarStrata then
+                addon:ApplyExperienceBarStrata()
+            end
+        end)
+    end)
+
+    self.experienceBarStrataEventFrame = frame
+end
+
+function addon:ApplyExperienceBarStrata(forceHighest)
+    self:EnsureExperienceBarStrataHooks()
+
+    if not self.db then
+        return
+    end
+
+    forceHighest = forceHighest ~= nil and forceHighest or self.db.experienceBarsForceHighestStrata
+    self.originalExperienceBarStrata = self.originalExperienceBarStrata or {}
+
+    for frame in pairs(CollectExperienceBarFrames()) do
+        if self.originalExperienceBarStrata[frame] == nil then
+            self.originalExperienceBarStrata[frame] = frame:GetFrameStrata() or "MEDIUM"
+        end
+
+        if forceHighest then
+            frame:SetFrameStrata("TOOLTIP")
+        else
+            frame:SetFrameStrata(self.originalExperienceBarStrata[frame] or "MEDIUM")
+        end
+    end
+end
+
 function addon:ApplyTweaks()
     if not self.db then
         return
@@ -397,11 +477,14 @@ function addon:ApplyTweaks()
 
     self:SetErrorTextBackground(self.db.errorTextBackgroundEnabled, self.db.errorTextBackgroundAlpha, self.db.errorTextBackgroundDuration)
     self:SetBattlegroundMapScale(self.db.battlegroundMapScale)
+    self:ApplyExperienceBarStrata(self.db.experienceBarsForceHighestStrata)
     self:SetSpeedPanelEnabled(self.db.speedPanelEnabled)
     self:UpdatePRDTextures()
     self:SetPRDVisibilityOptions()
     self:InitChatTweaks()
     self:UpdateOverrideActionBar()
+    self:SetPartyFrameCenteringEnabled(self.db.centerPartyFramesEnabled)
+    self:SetRaidFrameCenteringEnabled(self.db.centerRaidFramesEnabled)
 
     -- Nameplate Tweaks
     self:UpdateNameplateScale()
