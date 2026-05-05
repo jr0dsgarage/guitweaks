@@ -21,6 +21,7 @@ local defaults = {
         battlegroundMapScale = 1.0,
         battlegroundMapForceLowestStrata = false,
         experienceBarsForceHighestStrata = false,
+        topCenterWidgetOffset = 0,
         speedPanelEnabled = false,
         speedPanelLocked = false,
         speedPanelDebug = false,

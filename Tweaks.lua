@@ -468,6 +468,76 @@ function addon:ApplyExperienceBarStrata(forceHighest)
     end
 end
 
+local function GetTopCenterWidgetFrame()
+    local frame = _G.UIWidgetTopCenterContainerFrame
+    if frame and frame.GetPoint and frame.SetPoint and frame.ClearAllPoints then
+        return frame
+    end
+
+    return nil
+end
+
+function addon:EnsureTopCenterWidgetOffsetHooks()
+    if self.topCenterWidgetOffsetEventFrame then
+        return
+    end
+
+    local frame = CreateFrame("Frame")
+    frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    frame:RegisterEvent("UPDATE_UI_WIDGET")
+    frame:RegisterEvent("UPDATE_ALL_UI_WIDGETS")
+    frame:RegisterEvent("DISPLAY_SIZE_CHANGED")
+    frame:RegisterEvent("UI_SCALE_CHANGED")
+    frame:SetScript("OnEvent", function()
+        C_Timer.After(0, function()
+            if addon and addon.ApplyTopCenterWidgetOffset then
+                addon:ApplyTopCenterWidgetOffset()
+            end
+        end)
+    end)
+
+    self.topCenterWidgetOffsetEventFrame = frame
+end
+
+function addon:ApplyTopCenterWidgetOffset(offset)
+    self:EnsureTopCenterWidgetOffsetHooks()
+
+    if not self.db then
+        return
+    end
+
+    offset = offset ~= nil and offset or self.db.topCenterWidgetOffset or 0
+    local frame = GetTopCenterWidgetFrame()
+    if not frame then
+        return
+    end
+
+    if self.originalTopCenterWidgetPoint == nil then
+        local point, relativeTo, relativePoint, xOfs, yOfs = frame:GetPoint(1)
+        if point then
+            self.originalTopCenterWidgetPoint = {
+                point = point,
+                relativeTo = relativeTo,
+                relativePoint = relativePoint,
+                xOfs = xOfs or 0,
+                yOfs = yOfs or 0,
+            }
+        end
+    end
+
+    local originalPoint = self.originalTopCenterWidgetPoint
+    if originalPoint then
+        frame:ClearAllPoints()
+        frame:SetPoint(
+            originalPoint.point,
+            originalPoint.relativeTo,
+            originalPoint.relativePoint or originalPoint.point,
+            originalPoint.xOfs or 0,
+            (originalPoint.yOfs or 0) - offset
+        )
+    end
+end
+
 function addon:ApplyTweaks()
     if not self.db then
         return
@@ -478,6 +548,7 @@ function addon:ApplyTweaks()
     self:SetErrorTextBackground(self.db.errorTextBackgroundEnabled, self.db.errorTextBackgroundAlpha, self.db.errorTextBackgroundDuration)
     self:SetBattlegroundMapScale(self.db.battlegroundMapScale)
     self:ApplyExperienceBarStrata(self.db.experienceBarsForceHighestStrata)
+    self:ApplyTopCenterWidgetOffset(self.db.topCenterWidgetOffset)
     self:SetSpeedPanelEnabled(self.db.speedPanelEnabled)
     self:UpdatePRDTextures()
     self:SetPRDVisibilityOptions()

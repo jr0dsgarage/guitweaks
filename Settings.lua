@@ -88,6 +88,7 @@ function addon:CreateSettingsPanel()
 
     -- Page Definitions
     local tabGeneral = CreateSettingsPage("general", "General Tweaks", "Core quality-of-life improvements and shared behavior.")
+    local tabFrameAdjustments = CreateSettingsPage("frameadjustments", "Frame Adjustments", "Adjust frame strata and status tracking positioning.")
     local tabChat = CreateSettingsPage("chat", "Chat Tweaks", "Customize chat behavior and chat frame controls.")
     local tabSpeed = CreateSettingsPage("speed", "Speed Tweaks", "Configure movement speed display options.")
     local tabPRD = CreateSettingsPage("prd", "PRD Tweaks", "Manage Personal Resource Display appearance and behavior.")
@@ -191,46 +192,6 @@ function addon:CreateSettingsPanel()
     end)
 
 
-    -- Map Scale
-    local bgMapScale, bgMapTitle = CreateSection(tabGeneral, "Battleground Map Scale", "Adjust the battlefield map size (Shift+M).", 130)
-    
-    local scaleSlider = CreateFrame("Slider", nil, bgMapScale, "OptionsSliderTemplate")
-    scaleSlider:SetPoint("TOPLEFT", bgMapTitle, "BOTTOMLEFT", 0, -28)
-    scaleSlider:SetMinMaxValues(0.5, 2.0)
-    scaleSlider:SetValue(addon.db.battlegroundMapScale or 1.0)
-    scaleSlider:SetValueStep(0.1)
-    scaleSlider:SetObeyStepOnDrag(true)
-    scaleSlider:SetWidth(200)
-    scaleSlider.Text:SetText(string.format("Scale: %.0f%%", (addon.db.battlegroundMapScale or 1.0) * 100))
-    scaleSlider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value * 10 + 0.5) / 10
-        self.Text:SetText(string.format("Scale: %.0f%%", value * 100))
-        addon.db.battlegroundMapScale = value
-        addon:ApplyTweaks()
-    end)
-
-    local mapLowestStrataCheckbox = CreateFrame("CheckButton", nil, bgMapScale, "InterfaceOptionsCheckButtonTemplate")
-    mapLowestStrataCheckbox:SetPoint("TOPLEFT", scaleSlider, "BOTTOMLEFT", 0, -10)
-    mapLowestStrataCheckbox.Text:SetText("Force map to lowest strata")
-    mapLowestStrataCheckbox:SetChecked(addon.db.battlegroundMapForceLowestStrata)
-    mapLowestStrataCheckbox:SetScript("OnClick", function(self)
-        addon.db.battlegroundMapForceLowestStrata = self:GetChecked()
-        addon:ApplyTweaks()
-    end)
-
-    -- Experience Bars
-    local expBarStrataGroup, expBarStrataTitle = CreateSection(tabGeneral, "Experience Bars", "Adjust strata behavior for XP/reputation/honor tracking bars.", 80)
-
-    local expBarHighestStrataCheckbox = CreateFrame("CheckButton", nil, expBarStrataGroup, "InterfaceOptionsCheckButtonTemplate")
-    expBarHighestStrataCheckbox:SetPoint("TOPLEFT", expBarStrataTitle, "BOTTOMLEFT", 0, -10)
-    expBarHighestStrataCheckbox.Text:SetText("Force experience bars to highest strata")
-    expBarHighestStrataCheckbox:SetChecked(addon.db.experienceBarsForceHighestStrata)
-    expBarHighestStrataCheckbox:SetScript("OnClick", function(self)
-        addon.db.experienceBarsForceHighestStrata = self:GetChecked()
-        addon:ApplyTweaks()
-    end)
-
-
     -- Override Action Bar
     local overrideBarGroup, overrideBarTitle = CreateSection(tabGeneral, "Override Action Bar", "Adjust the position of the Vehicle/Override Action Bar.", 100)
 
@@ -261,6 +222,70 @@ function addon:CreateSettingsPanel()
     encounterPercentCheck:SetScript("OnClick", function(self)
         addon.db.encounterBarPreyPercentEnabled = self:GetChecked()
         addon:InitEncounterBarPreyPercent()
+    end)
+
+    -- ====================
+    -- FRAME ADJUSTMENTS TAB CONTENT
+    -- ====================
+
+    -- Map Scale
+    local bgMapScale, bgMapTitle = CreateSection(tabFrameAdjustments, "Battleground Map Scale", "Adjust the battlefield map size (Shift+M).", 130)
+    
+    local scaleSlider = CreateFrame("Slider", nil, bgMapScale, "OptionsSliderTemplate")
+    scaleSlider:SetPoint("TOPLEFT", bgMapTitle, "BOTTOMLEFT", 0, -28)
+    scaleSlider:SetMinMaxValues(0.5, 2.0)
+    scaleSlider:SetValue(addon.db.battlegroundMapScale or 1.0)
+    scaleSlider:SetValueStep(0.1)
+    scaleSlider:SetObeyStepOnDrag(true)
+    scaleSlider:SetWidth(200)
+    scaleSlider.Text:SetText(string.format("Scale: %.0f%%", (addon.db.battlegroundMapScale or 1.0) * 100))
+    scaleSlider:SetScript("OnValueChanged", function(self, value)
+        value = math.floor(value * 10 + 0.5) / 10
+        self.Text:SetText(string.format("Scale: %.0f%%", value * 100))
+        addon.db.battlegroundMapScale = value
+        addon:ApplyTweaks()
+    end)
+
+    local mapLowestStrataCheckbox = CreateFrame("CheckButton", nil, bgMapScale, "InterfaceOptionsCheckButtonTemplate")
+    mapLowestStrataCheckbox:SetPoint("TOPLEFT", scaleSlider, "BOTTOMLEFT", 0, -10)
+    mapLowestStrataCheckbox.Text:SetText("Force map to lowest strata")
+    mapLowestStrataCheckbox:SetChecked(addon.db.battlegroundMapForceLowestStrata)
+    mapLowestStrataCheckbox:SetScript("OnClick", function(self)
+        addon.db.battlegroundMapForceLowestStrata = self:GetChecked()
+        addon:ApplyTweaks()
+    end)
+
+    -- Experience Bars
+    local expBarStrataGroup, expBarStrataTitle = CreateSection(tabFrameAdjustments, "Experience Bars", "Adjust strata behavior for XP/reputation/honor tracking bars.", 80)
+
+    local expBarHighestStrataCheckbox = CreateFrame("CheckButton", nil, expBarStrataGroup, "InterfaceOptionsCheckButtonTemplate")
+    expBarHighestStrataCheckbox:SetPoint("TOPLEFT", expBarStrataTitle, "BOTTOMLEFT", 0, -10)
+    expBarHighestStrataCheckbox.Text:SetText("Force experience bars to highest strata")
+    expBarHighestStrataCheckbox:SetChecked(addon.db.experienceBarsForceHighestStrata)
+    expBarHighestStrataCheckbox:SetScript("OnClick", function(self)
+        addon.db.experienceBarsForceHighestStrata = self:GetChecked()
+        addon:ApplyTweaks()
+    end)
+
+
+    -- Top Center Widget Offset
+    local topCenterWidgetGroup, topCenterWidgetTitle = CreateSection(tabFrameAdjustments, "Top Center Widget Offset", "Move UIWidgetTopCenterContainerFrame downward on the screen.", 100)
+
+    local topCenterWidgetSlider = CreateFrame("Slider", nil, topCenterWidgetGroup, "OptionsSliderTemplate")
+    topCenterWidgetSlider:SetPoint("TOPLEFT", topCenterWidgetTitle, "BOTTOMLEFT", 0, -28)
+    topCenterWidgetSlider:SetMinMaxValues(0, 100)
+    topCenterWidgetSlider:SetValue(addon.db.topCenterWidgetOffset or 0)
+    topCenterWidgetSlider:SetValueStep(1)
+    topCenterWidgetSlider:SetObeyStepOnDrag(true)
+    topCenterWidgetSlider:SetWidth(400)
+    topCenterWidgetSlider.Low:SetText("0")
+    topCenterWidgetSlider.High:SetText("100")
+    topCenterWidgetSlider.Text:SetText(string.format("Offset: %d", addon.db.topCenterWidgetOffset or 0))
+    topCenterWidgetSlider:SetScript("OnValueChanged", function(self, value)
+        value = math.floor(value)
+        self.Text:SetText(string.format("Offset: %d", value))
+        addon.db.topCenterWidgetOffset = value
+        addon:ApplyTopCenterWidgetOffset(value)
     end)
 
     -- ====================
