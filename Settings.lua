@@ -267,6 +267,35 @@ function addon:CreateSettingsPanel()
         addon:ApplyTweaks()
     end)
 
+    -- Center Raid/Party Frames
+    local centerFramesGroup, centerFramesTitle = CreateSection(tabFrameAdjustments, "Raid & Party Frames", "Keep party and raid frame groups centered as they resize.", 110)
+
+    local centerPartyCheckbox = CreateFrame("CheckButton", nil, centerFramesGroup, "InterfaceOptionsCheckButtonTemplate")
+    centerPartyCheckbox:SetPoint("TOPLEFT", centerFramesTitle, "BOTTOMLEFT", 0, -10)
+    centerPartyCheckbox.Text:SetText("Center party frames")
+    centerPartyCheckbox:SetChecked(addon.db.centerPartyFramesEnabled)
+    centerPartyCheckbox:SetScript("OnClick", function(self)
+        addon.db.centerPartyFramesEnabled = self:GetChecked()
+        addon:SetPartyFrameCenteringEnabled(addon.db.centerPartyFramesEnabled)
+    end)
+
+    local centerRaidCheckbox = CreateFrame("CheckButton", nil, centerFramesGroup, "InterfaceOptionsCheckButtonTemplate")
+    centerRaidCheckbox:SetPoint("TOPLEFT", centerPartyCheckbox, "BOTTOMLEFT", 0, -6)
+    centerRaidCheckbox.Text:SetText("Center raid frames")
+    centerRaidCheckbox:SetChecked(addon.db.centerRaidFramesEnabled)
+    centerRaidCheckbox:SetScript("OnClick", function(self)
+        addon.db.centerRaidFramesEnabled = self:GetChecked()
+        addon:SetRaidFrameCenteringEnabled(addon.db.centerRaidFramesEnabled)
+    end)
+
+    local centerFramesDebugCheckbox = CreateFrame("CheckButton", nil, centerFramesGroup, "InterfaceOptionsCheckButtonTemplate")
+    centerFramesDebugCheckbox:SetPoint("LEFT", centerPartyCheckbox, "RIGHT", 220, 0)
+    centerFramesDebugCheckbox.Text:SetText("Debug logging")
+    centerFramesDebugCheckbox:SetChecked(addon.db.centerFramesDebug)
+    centerFramesDebugCheckbox:SetScript("OnClick", function(self)
+        addon.db.centerFramesDebug = self:GetChecked()
+    end)
+
 
     -- Top Center Widget Offset
     local topCenterWidgetGroup, topCenterWidgetTitle = CreateSection(tabFrameAdjustments, "Top Center Widget Offset", "Move UIWidgetTopCenterContainerFrame downward on the screen.", 100)

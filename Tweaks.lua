@@ -397,28 +397,10 @@ local function CollectExperienceBarFrames()
         end
     end
 
+    -- Only adjust top-level tracking containers. Do not force child/statusbar internals.
     AddFrame(_G.MainStatusTrackingBarContainer)
     AddFrame(_G.StatusTrackingBarManager)
-    AddFrame(_G.MainMenuBarExpBar)
-    AddFrame(_G.MainMenuExpBar)
-    AddFrame(_G.MainMenuBarMaxLevelBar)
-    AddFrame(_G.ReputationWatchBar)
-    AddFrame(_G.HonorWatchBar)
-    AddFrame(_G.ArtifactWatchBar)
-    AddFrame(_G.AzeriteBarContainer)
-
-    local containers = {
-        _G.MainStatusTrackingBarContainer,
-        _G.StatusTrackingBarManager,
-    }
-
-    for _, container in ipairs(containers) do
-        if container and container.GetChildren then
-            for _, child in ipairs({ container:GetChildren() }) do
-                AddFrame(child)
-            end
-        end
-    end
+    AddFrame(_G.StatusTrackingBarContainer)
 
     return frames
 end
@@ -434,12 +416,19 @@ function addon:EnsureExperienceBarStrataHooks()
     frame:RegisterEvent("UPDATE_EXHAUSTION")
     frame:RegisterEvent("UPDATE_FACTION")
     frame:RegisterEvent("HONOR_XP_UPDATE")
+    frame:RegisterEvent("UPDATE_UI_WIDGET")
+    frame:RegisterEvent("UPDATE_ALL_UI_WIDGETS")
+    frame:RegisterEvent("DISPLAY_SIZE_CHANGED")
+    frame:RegisterEvent("UI_SCALE_CHANGED")
     frame:SetScript("OnEvent", function()
-        C_Timer.After(0, function()
-            if addon and addon.ApplyExperienceBarStrata then
-                addon:ApplyExperienceBarStrata()
-            end
-        end)
+        if addon and addon.ApplyExperienceBarStrata then
+            addon:ApplyExperienceBarStrata()
+            C_Timer.After(0.1, function()
+                if addon and addon.ApplyExperienceBarStrata then
+                    addon:ApplyExperienceBarStrata()
+                end
+            end)
+        end
     end)
 
     self.experienceBarStrataEventFrame = frame
@@ -454,17 +443,31 @@ function addon:ApplyExperienceBarStrata(forceHighest)
 
     forceHighest = forceHighest ~= nil and forceHighest or self.db.experienceBarsForceHighestStrata
     self.originalExperienceBarStrata = self.originalExperienceBarStrata or {}
+    local targetFrames = CollectExperienceBarFrames()
 
-    for frame in pairs(CollectExperienceBarFrames()) do
+    -- If child frames were touched by earlier logic, restore and forget them.
+    for frame, original in pairs(self.originalExperienceBarStrata) do
+        if frame and frame.SetFrameStrata and not targetFrames[frame] then
+            frame:SetFrameStrata(original or "MEDIUM")
+            self.originalExperienceBarStrata[frame] = nil
+        end
+    end
+
+    if not forceHighest then
+        for frame, original in pairs(self.originalExperienceBarStrata) do
+            if frame and frame.SetFrameStrata then
+                frame:SetFrameStrata(original or "MEDIUM")
+            end
+        end
+        return
+    end
+
+    for frame in pairs(targetFrames) do
         if self.originalExperienceBarStrata[frame] == nil then
             self.originalExperienceBarStrata[frame] = frame:GetFrameStrata() or "MEDIUM"
         end
 
-        if forceHighest then
-            frame:SetFrameStrata("TOOLTIP")
-        else
-            frame:SetFrameStrata(self.originalExperienceBarStrata[frame] or "MEDIUM")
-        end
+        frame:SetFrameStrata("TOOLTIP")
     end
 end
 
