@@ -1575,7 +1575,7 @@ function addon:CreateSettingsPanel()
     rememberFiltersInfo:SetPoint("TOPLEFT", rememberFiltersCheck, "BOTTOMLEFT", 4, -4)
     rememberFiltersInfo:SetWidth(420)
     rememberFiltersInfo:SetJustifyH("LEFT")
-    rememberFiltersInfo:SetText("Each profession saves its own filter set. Filters are restored the first time you open the Orders tab in a new session.")
+    rememberFiltersInfo:SetText("Each profession saves its own filter set. Filters are saved when the panel closes and reapplied whenever you open the Orders tab.")
 
     local professionColorsCheck = CreateFrame("CheckButton", nil, craftingOrderSection, "InterfaceOptionsCheckButtonTemplate")
     professionColorsCheck:SetPoint("TOPLEFT", rememberFiltersInfo, "BOTTOMLEFT", -4, -16)

@@ -267,17 +267,80 @@ function addon:HookProfessionRecipeButton(buttonFrame)
     end
 end
 
-function addon:HookProfessionRecipeListEvents()
-    if self.professionRecipeListEventsHooked then
+local function EnumerateDescendants(rootFrame, callback, visited)
+    if not rootFrame or not callback then
         return
     end
 
-    local professionsFrame = _G["ProfessionsFrame"]
-    local recipeList = professionsFrame and professionsFrame.CraftingPage and professionsFrame.CraftingPage.RecipeList
-    local scrollBox = recipeList and recipeList.ScrollBox
-    if not scrollBox then
+    visited = visited or {}
+    if visited[rootFrame] then
         return
     end
+    visited[rootFrame] = true
+
+    callback(rootFrame)
+
+    if rootFrame.GetNumChildren and rootFrame.GetChildren then
+        for index = 1, rootFrame:GetNumChildren() do
+            local child = select(index, rootFrame:GetChildren())
+            if child then
+                EnumerateDescendants(child, callback, visited)
+            end
+        end
+    end
+end
+
+local function GetProfessionRecipeSearchRoots()
+    local roots = {}
+    local seen = {}
+
+    local function AddRoot(frame)
+        if frame and not seen[frame] then
+            seen[frame] = true
+            roots[#roots + 1] = frame
+        end
+    end
+
+    local professionsFrame = _G["ProfessionsFrame"]
+    if not professionsFrame then
+        return roots
+    end
+
+    AddRoot(professionsFrame.CraftingPage and professionsFrame.CraftingPage.RecipeList)
+
+    local ordersPage = professionsFrame.OrdersPage
+    if ordersPage then
+        AddRoot(ordersPage)
+        AddRoot(ordersPage.RecipeList)
+        AddRoot(ordersPage.BrowseFrame)
+        AddRoot(ordersPage.BrowseFrame and ordersPage.BrowseFrame.RecipeList)
+    end
+
+    return roots
+end
+
+local function GetProfessionRecipeScrollBoxes()
+    local scrollBoxes = {}
+    local seen = {}
+
+    for _, root in ipairs(GetProfessionRecipeSearchRoots()) do
+        EnumerateDescendants(root, function(frame)
+            local scrollBox = frame.ScrollBox
+            if scrollBox and not seen[scrollBox] then
+                seen[scrollBox] = true
+                scrollBoxes[#scrollBoxes + 1] = {
+                    owner = frame,
+                    scrollBox = scrollBox,
+                }
+            end
+        end)
+    end
+
+    return scrollBoxes
+end
+
+function addon:HookProfessionRecipeListEvents()
+    self.professionRecipeListHookedFrames = self.professionRecipeListHookedFrames or {}
 
     local function TryHookScript(frame, scriptName, handler)
         if not (frame and frame.HookScript and handler) then
@@ -304,25 +367,34 @@ function addon:HookProfessionRecipeListEvents()
     end
 
     local hooked = false
-    local scrollBar = scrollBox.ScrollBar or recipeList.ScrollBar
-    if TryHookScript(scrollBar, "OnValueChanged", QueueRefresh) then
-        hooked = true
+    for _, entry in ipairs(GetProfessionRecipeScrollBoxes()) do
+        local scrollBox = entry.scrollBox
+        if not self.professionRecipeListHookedFrames[scrollBox] then
+            self.professionRecipeListHookedFrames[scrollBox] = true
+
+            local owner = entry.owner
+            local scrollBar = scrollBox.ScrollBar or (owner and owner.ScrollBar)
+            if TryHookScript(scrollBar, "OnValueChanged", QueueRefresh) then
+                hooked = true
+            end
+
+            if TryHookScript(scrollBox, "OnMouseWheel", QueueRefresh) then
+                hooked = true
+            end
+
+            local scrollTarget = scrollBox.ScrollTarget
+            if TryHookScript(scrollTarget, "OnMouseWheel", QueueRefresh) then
+                hooked = true
+            end
+        end
     end
 
-    if TryHookScript(scrollBox, "OnMouseWheel", QueueRefresh) then
-        hooked = true
-    end
-
-    local scrollTarget = scrollBox.ScrollTarget
-    if TryHookScript(scrollTarget, "OnMouseWheel", QueueRefresh) then
-        hooked = true
-    end
-
-    self.professionRecipeListEventsHooked = hooked
+    self.professionRecipeListEventsHooked = self.professionRecipeListEventsHooked or hooked
 end
 
 local function GetRecipeButtons()
     local buttons = {}
+    local seenButtons = {}
 
     local professionsFrame = _G["ProfessionsFrame"]
     if not professionsFrame or not professionsFrame:IsShown() then
@@ -330,44 +402,36 @@ local function GetRecipeButtons()
         return buttons
     end
 
-    if not (professionsFrame.CraftingPage and professionsFrame.CraftingPage.RecipeList) then
-        Debug("CraftingPage or RecipeList not found")
+    local scrollBoxes = GetProfessionRecipeScrollBoxes()
+    if #scrollBoxes == 0 then
+        Debug("No recipe scroll boxes found")
         return buttons
     end
 
-    local recipeList = professionsFrame.CraftingPage.RecipeList
-    local scrollBox = recipeList and recipeList.ScrollBox
-
-    if not scrollBox then
-        Debug("ScrollBox not found")
-        return buttons
-    end
-
-    local scrollTarget = scrollBox.ScrollTarget
-    if not scrollTarget or not scrollTarget.GetNumChildren then
-        Debug("ScrollTarget not found or has no GetNumChildren")
-        return buttons
-    end
-
-    Debug("ScrollTarget has " .. scrollTarget:GetNumChildren() .. " children")
-
-    for i = 1, scrollTarget:GetNumChildren() do
-        local buttonFrame = select(i, scrollTarget:GetChildren())
-        if buttonFrame then
-            local labelFrame, recipeID = ResolveRecipeButtonData(buttonFrame)
-            if labelFrame then
-                addon:HookProfessionRecipeButton(buttonFrame)
-                if recipeID then
-                    if DEBUG_ENABLED and #buttons < 3 then
-                        Debug("Found recipe button #" .. i .. " with recipeID=" .. tostring(recipeID))
-                    end
-                    buttons[#buttons + 1] = {
-                        frame = buttonFrame,
-                        labelFrame = labelFrame,
-                        recipeID = recipeID
-                    }
+    for _, entry in ipairs(scrollBoxes) do
+        local scrollTarget = entry.scrollBox and entry.scrollBox.ScrollTarget
+        if scrollTarget then
+            EnumerateDescendants(scrollTarget, function(buttonFrame)
+                if seenButtons[buttonFrame] then
+                    return
                 end
-            end
+
+                local labelFrame, recipeID = ResolveRecipeButtonData(buttonFrame)
+                if labelFrame then
+                    seenButtons[buttonFrame] = true
+                    addon:HookProfessionRecipeButton(buttonFrame)
+                    if recipeID then
+                        if DEBUG_ENABLED and #buttons < 6 then
+                            Debug("Found recipe button with recipeID=" .. tostring(recipeID))
+                        end
+                        buttons[#buttons + 1] = {
+                            frame = buttonFrame,
+                            labelFrame = labelFrame,
+                            recipeID = recipeID,
+                        }
+                    end
+                end
+            end)
         end
     end
 

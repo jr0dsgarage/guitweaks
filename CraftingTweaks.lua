@@ -11,7 +11,7 @@ local addonName, addon = ...
 -- ============================================================
 
 local craftingHooksApplied = false
-local sessionFiltersRestored = false
+local activeProfessionKey = nil
 
 -- Returns a string key identifying the current profession for DB storage.
 -- Prefers info.profession (Enum.Profession – stable across expansions),
@@ -26,9 +26,14 @@ local function GetProfessionKey()
     return tostring(key)
 end
 
-local function SaveOrderFilters()
+local function RefreshActiveProfessionKey()
+    activeProfessionKey = GetProfessionKey()
+    return activeProfessionKey
+end
+
+local function SaveOrderFilters(professionKey)
     if not (addon.db and addon.db.rememberCraftingOrderFilters) then return end
-    local profKey = GetProfessionKey()
+    local profKey = professionKey or activeProfessionKey or RefreshActiveProfessionKey()
     if not profKey then return end
 
     if not addon.db.craftingOrderFilters then
@@ -56,7 +61,7 @@ end
 local function RestoreOrderFilters()
     if not (addon.db and addon.db.rememberCraftingOrderFilters) then return end
     if not ProfessionsFrame then return end
-    local profKey = GetProfessionKey()
+    local profKey = RefreshActiveProfessionKey()
     if not profKey then return end
     if not addon.db.craftingOrderFilters then return end
 
@@ -77,16 +82,28 @@ local function SetupCraftingHooks()
     if craftingHooksApplied then return end
     if not ProfessionsFrame or not ProfessionsFrame.OrdersPage then return end
 
-    -- Reset the per-session flag whenever the profession window freshly opens.
+    -- Track active profession whenever the main window opens.
     ProfessionsFrame:HookScript("OnShow", function(self)
-        sessionFiltersRestored = false
+        RefreshActiveProfessionKey()
     end)
 
-    -- Also reset when the active profession changes (e.g. via the dropdown or
-    -- linking a different profession) so the new profession's saved filters are
-    -- applied the first time its Orders tab is shown.
+    -- Save filters when the professions panel closes.
+    ProfessionsFrame:HookScript("OnHide", function(self)
+        SaveOrderFilters(activeProfessionKey)
+    end)
+
+    -- Track profession changes and re-apply filters if Orders is currently open.
     EventRegistry:RegisterCallback("Professions.ProfessionSelected", function(_, profInfo)
-        sessionFiltersRestored = false
+        local previousKey = activeProfessionKey
+        local nextKey = RefreshActiveProfessionKey()
+
+        if previousKey and previousKey ~= nextKey then
+            SaveOrderFilters(previousKey)
+        end
+
+        if ProfessionsFrame and ProfessionsFrame.OrdersPage and ProfessionsFrame.OrdersPage:IsShown() then
+            RestoreOrderFilters()
+        end
     end, addon)
 
     -- Save filters whenever the Orders page is hidden, which covers both
@@ -95,17 +112,11 @@ local function SetupCraftingHooks()
         SaveOrderFilters()
     end)
 
-    -- Restore saved filters the first time the Orders page is shown in each
-    -- session.  Subsequent tab switches within the same session are skipped so
-    -- that manual in-session changes are not overwritten.
-    -- This hook fires synchronously before the RunNextFrame(StartDefaultSearch)
-    -- that Blizzard queues inside OnShow, so the restored filter state is in
-    -- place when the initial order search is sent.
+    -- Always restore saved filters whenever the Orders page is shown.
+    -- This fires before Blizzard's queued order search, so restored state is
+    -- in place when the request runs.
     ProfessionsFrame.OrdersPage:HookScript("OnShow", function(self)
-        if not sessionFiltersRestored then
-            sessionFiltersRestored = true
-            RestoreOrderFilters()
-        end
+        RestoreOrderFilters()
     end)
 
     craftingHooksApplied = true
