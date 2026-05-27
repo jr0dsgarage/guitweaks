@@ -108,6 +108,52 @@ local function GetRecipeOutputQuality(recipeID)
     return nil
 end
 
+local function ShowRecipeTooltip(ownerFrame, recipeID)
+    if not ownerFrame or not recipeID then
+        return false
+    end
+
+    if not GameTooltip then
+        return false
+    end
+
+    local recipeInfo = C_TradeSkillUI and C_TradeSkillUI.GetRecipeInfo and C_TradeSkillUI.GetRecipeInfo(recipeID)
+    local recipeLink = recipeInfo and recipeInfo.hyperlink
+
+    GameTooltip:EnableMouse(false)
+    GameTooltip:SetOwner(ownerFrame, "ANCHOR_CURSOR_RIGHT")
+
+    if recipeLink and recipeLink ~= "" and GameTooltip.SetHyperlink then
+        GameTooltip:SetHyperlink(recipeLink)
+        GameTooltip:Show()
+        return true
+    end
+
+    local outputItemLink = nil
+    local schematic = C_TradeSkillUI and C_TradeSkillUI.GetRecipeSchematic and C_TradeSkillUI.GetRecipeSchematic(recipeID, false)
+    if schematic then
+        outputItemLink = schematic.outputItemHyperlink
+        if (not outputItemLink or outputItemLink == "") and schematic.outputItemID then
+            outputItemLink = "item:" .. tostring(schematic.outputItemID)
+        end
+    end
+
+    if outputItemLink and outputItemLink ~= "" and GameTooltip.SetHyperlink then
+        GameTooltip:SetHyperlink(outputItemLink)
+        GameTooltip:Show()
+        return true
+    end
+
+    if recipeInfo and recipeInfo.name then
+        GameTooltip:SetText(recipeInfo.name)
+        GameTooltip:Show()
+        return true
+    end
+
+    GameTooltip:Hide()
+    return false
+end
+
 local function GetRecipeRecipeIDByIndex(recipeIndex)
     if not C_TradeSkillUI or not C_TradeSkillUI.GetRecipeIndexInfo then
         return nil
@@ -166,6 +212,93 @@ local function ResolveRecipeButtonData(buttonFrame)
     return labelFrame, recipeID
 end
 
+local function MakeProfessionRecipeMouseTransparent(frame)
+    if not frame or frame.GUITProfessionRecipeMouseTransparent then
+        return
+    end
+
+    frame.GUITProfessionRecipeMouseTransparent = true
+
+    if frame.EnableMouse then
+        pcall(frame.EnableMouse, frame, false)
+    end
+    if frame.SetMouseClickEnabled then
+        pcall(frame.SetMouseClickEnabled, frame, false)
+    end
+    if frame.SetMouseMotionEnabled then
+        pcall(frame.SetMouseMotionEnabled, frame, false)
+    end
+end
+
+local function GetHoveredProfessionRecipeButton(scrollTarget)
+    if not scrollTarget or not GetMouseFocus then
+        return nil, nil
+    end
+
+    ---@type any
+    local focus = GetMouseFocus()
+    while focus do
+        local labelFrame, recipeID = ResolveRecipeButtonData(focus)
+        if labelFrame then
+            return focus, recipeID
+        end
+
+        if focus == scrollTarget then
+            break
+        end
+
+        local parent = nil
+        if focus.GetParent then
+            parent = focus:GetParent()
+        end
+        focus = parent
+    end
+
+    return nil, nil
+end
+
+local function UpdateProfessionRecipeTooltipForScrollTarget(scrollTarget)
+    if not scrollTarget then
+        return
+    end
+
+    if not (addon and addon.db and addon.db.professionRecipeNameTooltipEnabled) then
+        if scrollTarget.GUITProfessionRecipeTooltipOwner and GameTooltip and GameTooltip:IsOwned(scrollTarget.GUITProfessionRecipeTooltipOwner) then
+            GameTooltip:Hide()
+        end
+        scrollTarget.GUITProfessionRecipeTooltipShown = nil
+        scrollTarget.GUITProfessionRecipeTooltipOwner = nil
+        return
+    end
+
+    local hoveredButton, recipeID = GetHoveredProfessionRecipeButton(scrollTarget)
+    local currentOwner = scrollTarget.GUITProfessionRecipeTooltipOwner
+
+    if hoveredButton ~= currentOwner then
+        if currentOwner and GameTooltip and GameTooltip:IsOwned(currentOwner) then
+            GameTooltip:Hide()
+        end
+
+        scrollTarget.GUITProfessionRecipeTooltipShown = nil
+        scrollTarget.GUITProfessionRecipeTooltipOwner = nil
+
+        if hoveredButton and recipeID and ShowRecipeTooltip(hoveredButton, recipeID) then
+            scrollTarget.GUITProfessionRecipeTooltipShown = true
+            scrollTarget.GUITProfessionRecipeTooltipOwner = hoveredButton
+        end
+
+        return
+    end
+
+    if not hoveredButton then
+        if currentOwner and GameTooltip and GameTooltip:IsOwned(currentOwner) then
+            GameTooltip:Hide()
+        end
+        scrollTarget.GUITProfessionRecipeTooltipShown = nil
+        scrollTarget.GUITProfessionRecipeTooltipOwner = nil
+    end
+end
+
 function addon:ApplyProfessionRecipeColorToButton(buttonFrame, forceReset)
     local labelFrame, recipeID = ResolveRecipeButtonData(buttonFrame)
     if not labelFrame then
@@ -201,6 +334,17 @@ function addon:HookProfessionRecipeLabel(labelFrame, buttonFrame)
     labelFrame.GUITProfessionRecipeLabelHooked = true
     labelFrame.GUITProfessionRecipeButton = buttonFrame
 
+    -- Let the parent recipe row button receive all mouse interaction.
+    if labelFrame.EnableMouse then
+        pcall(labelFrame.EnableMouse, labelFrame, false)
+    end
+    if labelFrame.SetMouseClickEnabled then
+        pcall(labelFrame.SetMouseClickEnabled, labelFrame, false)
+    end
+    if labelFrame.SetMouseMotionEnabled then
+        pcall(labelFrame.SetMouseMotionEnabled, labelFrame, false)
+    end
+
     local function ReapplyQualityColor(self)
         if self.GUITApplyingQualityColor then
             return
@@ -210,6 +354,25 @@ function addon:HookProfessionRecipeLabel(labelFrame, buttonFrame)
         if ownerButton then
             addon:ApplyProfessionRecipeColorToButton(ownerButton)
         end
+    end
+
+    local function HandleTooltipEnter(self)
+        if not (addon and addon.db and addon.db.professionRecipeNameTooltipEnabled) then
+            return
+        end
+
+        local ownerButton = self.GUITProfessionRecipeButton
+        local _, recipeID = ResolveRecipeButtonData(ownerButton)
+        if ShowRecipeTooltip(self, recipeID) then
+            self.GUITProfessionRecipeTooltipShown = true
+        end
+    end
+
+    local function HandleTooltipLeave(self)
+        if self.GUITProfessionRecipeTooltipShown and GameTooltip and GameTooltip:IsOwned(self) then
+            GameTooltip:Hide()
+        end
+        self.GUITProfessionRecipeTooltipShown = nil
     end
 
     local function TryHookMethod(target, methodName, handler)
@@ -224,6 +387,11 @@ function addon:HookProfessionRecipeLabel(labelFrame, buttonFrame)
     TryHookMethod(labelFrame, "SetTextColor", ReapplyQualityColor)
     TryHookMethod(labelFrame, "SetText", ReapplyQualityColor)
     TryHookMethod(labelFrame, "SetFormattedText", ReapplyQualityColor)
+
+    if labelFrame.HookScript then
+        pcall(labelFrame.HookScript, labelFrame, "OnEnter", HandleTooltipEnter)
+        pcall(labelFrame.HookScript, labelFrame, "OnLeave", HandleTooltipLeave)
+    end
 end
 
 function addon:HookProfessionRecipeButton(buttonFrame)
@@ -244,11 +412,31 @@ function addon:HookProfessionRecipeButton(buttonFrame)
         end)
         buttonFrame:HookScript("OnEnter", function(self)
             addon:ApplyProfessionRecipeColorToButton(self)
+            if addon.db and addon.db.professionRecipeNameTooltipEnabled then
+                local _, recipeID = ResolveRecipeButtonData(self)
+                if ShowRecipeTooltip(self, recipeID) then
+                    self.GUITProfessionRecipeTooltipShown = true
+                end
+            end
         end)
         buttonFrame:HookScript("OnLeave", function(self)
             addon:ApplyProfessionRecipeColorToButton(self)
+            if self.GUITProfessionRecipeTooltipShown and GameTooltip and GameTooltip:IsOwned(self) then
+                GameTooltip:Hide()
+            end
+            self.GUITProfessionRecipeTooltipShown = nil
+        end)
+        buttonFrame:HookScript("OnMouseDown", function(self)
+            if self.GUITProfessionRecipeTooltipShown and GameTooltip and GameTooltip:IsOwned(self) then
+                GameTooltip:Hide()
+            end
+            self.GUITProfessionRecipeTooltipShown = nil
         end)
     end
+
+    MakeProfessionRecipeMouseTransparent(buttonFrame.Label)
+    MakeProfessionRecipeMouseTransparent(buttonFrame.HighlightOverlay)
+    MakeProfessionRecipeMouseTransparent(buttonFrame.SelectedOverlay)
 
     local candidateMethods = {
         "Init",
@@ -385,6 +573,13 @@ function addon:HookProfessionRecipeListEvents()
             local scrollTarget = scrollBox.ScrollTarget
             if TryHookScript(scrollTarget, "OnMouseWheel", QueueRefresh) then
                 hooked = true
+            end
+
+            if scrollTarget and scrollTarget.HookScript then
+                local ok = pcall(scrollTarget.HookScript, scrollTarget, "OnUpdate", UpdateProfessionRecipeTooltipForScrollTarget)
+                if ok then
+                    hooked = true
+                end
             end
         end
     end
