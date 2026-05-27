@@ -224,6 +224,20 @@ function addon:CreateSettingsPanel()
         addon:InitEncounterBarPreyPercent()
     end)
 
+    -- Armor Set Action Highlights
+    local armorSetHighlightGroup, armorSetHighlightTitle = CreateSection(tabGeneral, "Armor Set Action Highlights", "Outline action buttons that trigger your currently equipped armor set.", 80)
+
+    local armorSetHighlightCheck = CreateFrame("CheckButton", nil, armorSetHighlightGroup, "InterfaceOptionsCheckButtonTemplate")
+    armorSetHighlightCheck:SetPoint("TOPLEFT", armorSetHighlightTitle, "BOTTOMLEFT", 0, -10)
+    armorSetHighlightCheck.Text:SetText("Use assisted-combat style outline for equipped set buttons")
+    armorSetHighlightCheck:SetChecked(addon.db.armorSetActionHighlightEnabled)
+    armorSetHighlightCheck:SetScript("OnClick", function(self)
+        addon.db.armorSetActionHighlightEnabled = self:GetChecked()
+        if addon.SetArmorSetActionHighlightEnabled then
+            addon:SetArmorSetActionHighlightEnabled(addon.db.armorSetActionHighlightEnabled)
+        end
+    end)
+
     -- ====================
     -- FRAME ADJUSTMENTS TAB CONTENT
     -- ====================

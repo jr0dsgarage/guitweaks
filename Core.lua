@@ -18,6 +18,7 @@ local defaults = {
         errorTextBackgroundAlpha = 0.7,
         errorTextBackgroundDuration = 3.0,
         overrideActionBarYOffset = 0,
+        armorSetActionHighlightEnabled = false,
         battlegroundMapScale = 1.0,
         battlegroundMapForceLowestStrata = false,
         experienceBarsForceHighestStrata = false,

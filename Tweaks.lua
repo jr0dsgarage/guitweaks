@@ -169,44 +169,45 @@ function addon:ApplyFriendlyNameToFrame(frame)
 
     local bottomText, topText
     if self.db.nameplateFriendlyNamesShowTitle then
-        local unitName = UnitName(unit)
-        local baseName = unitName or ""
-        local pvpName = UnitPVPName(unit, baseName)
-        -- Avoid realm-string comparisons here; UnitName's realm can be a secret value in tainted execution.
-        local matchName = baseName
-        
-        if pvpName and pvpName ~= "" and matchName ~= "" then
-            local s, e = string.find(pvpName, matchName, 1, true)
-            if s then
-                if s > 1 then
-                    -- Title is a prefix
-                    local title = string.sub(pvpName, 1, s - 1)
-                    title = string.match(title, "^[%s,]*(.-)[%s,]*$")
-                    if title and title ~= "" then
-                        topText = title
-                        bottomText = baseName
-                    else
-                        bottomText = baseName
-                    end
-                elseif e < #pvpName then
-                    -- Title is a suffix
-                    local title = string.sub(pvpName, e + 1)
-                    title = string.match(title, "^[%s,]*(.-)[%s,]*$")
-                    if title and title ~= "" then
-                        topText = baseName
-                        bottomText = title
-                    else
-                        bottomText = baseName
+        local baseName = GetUnitName(unit, false) or ""
+        bottomText = baseName
+
+        if baseName ~= "" then
+            local ok = pcall(function()
+                local pvpName = UnitPVPName(unit, baseName)
+                if not pvpName or pvpName == "" then
+                    return
+                end
+
+                local s, e = string.find(pvpName, baseName, 1, true)
+                if s then
+                    if s > 1 then
+                        -- Title is a prefix
+                        local title = string.sub(pvpName, 1, s - 1)
+                        title = string.match(title, "^[%s,]*(.-)[%s,]*$")
+                        if title and title ~= "" then
+                            topText = title
+                            bottomText = baseName
+                        end
+                    elseif e < #pvpName then
+                        -- Title is a suffix
+                        local title = string.sub(pvpName, e + 1)
+                        title = string.match(title, "^[%s,]*(.-)[%s,]*$")
+                        if title and title ~= "" then
+                            topText = baseName
+                            bottomText = title
+                        end
                     end
                 else
-                    bottomText = baseName
+                    -- Fallback if exact match fails
+                    bottomText = pvpName
                 end
-            else
-                -- Fallback if exact match fails
-                bottomText = pvpName
+            end)
+
+            if not ok then
+                bottomText = baseName
+                topText = nil
             end
-        else
-            bottomText = baseName
         end
     else
         bottomText = GetUnitName(unit, false) or UnitName(unit)
@@ -541,6 +542,290 @@ function addon:ApplyTopCenterWidgetOffset(offset)
     end
 end
 
+local function NormalizeEquipmentSetName(name)
+    if type(name) ~= "string" then
+        return nil
+    end
+
+    name = strtrim(name)
+    if name == "" then
+        return nil
+    end
+
+    return strlower(name)
+end
+
+local function ExtractIsEquippedFromSetInfo(info)
+    for i = 1, #info do
+        if type(info[i]) == "boolean" then
+            return info[i]
+        end
+    end
+
+    return false
+end
+
+function addon:GetEquippedArmorSetNames()
+    local equippedSetNames = {}
+    if not C_EquipmentSet then
+        return equippedSetNames
+    end
+
+    local function ConsiderSetID(setID)
+        if setID == nil or not C_EquipmentSet.GetEquipmentSetInfo then
+            return
+        end
+
+        local ok, info = pcall(function()
+            return { C_EquipmentSet.GetEquipmentSetInfo(setID) }
+        end)
+        if not ok or not info or #info == 0 then
+            return
+        end
+
+        local setName = info[1]
+        local isEquipped = ExtractIsEquippedFromSetInfo(info)
+        if not isEquipped and C_EquipmentSet.IsEquippedEquipmentSet then
+            local okByID, byID = pcall(C_EquipmentSet.IsEquippedEquipmentSet, setID)
+            if okByID and byID then
+                isEquipped = true
+            elseif type(setName) == "string" then
+                local okByName, byName = pcall(C_EquipmentSet.IsEquippedEquipmentSet, setName)
+                if okByName and byName then
+                    isEquipped = true
+                end
+            end
+        end
+
+        if isEquipped then
+            local normalized = NormalizeEquipmentSetName(setName)
+            if normalized then
+                equippedSetNames[normalized] = true
+            end
+        end
+    end
+
+    if C_EquipmentSet.GetEquipmentSetIDs then
+        local okIDs, ids = pcall(C_EquipmentSet.GetEquipmentSetIDs)
+        if okIDs and type(ids) == "table" then
+            for _, setID in ipairs(ids) do
+                ConsiderSetID(setID)
+            end
+            return equippedSetNames
+        end
+    end
+
+    if C_EquipmentSet.GetNumEquipmentSets then
+        local okCount, count = pcall(C_EquipmentSet.GetNumEquipmentSets)
+        count = okCount and tonumber(count) or 0
+        for i = 0, count do
+            ConsiderSetID(i)
+        end
+    end
+
+    return equippedSetNames
+end
+
+local function ActionResolvesToEquipmentSetName(actionType, actionID)
+    if actionType ~= "equipmentset" then
+        return nil
+    end
+
+    if type(actionID) == "string" then
+        return actionID
+    end
+
+    if type(actionID) == "number" and C_EquipmentSet and C_EquipmentSet.GetEquipmentSetInfo then
+        local ok, info = pcall(function()
+            return { C_EquipmentSet.GetEquipmentSetInfo(actionID) }
+        end)
+        if ok and info and type(info[1]) == "string" then
+            return info[1]
+        end
+    end
+
+    return nil
+end
+
+local function MacroBodyReferencesEquippedSet(macroBody, equippedSetNames)
+    if type(macroBody) ~= "string" or not next(equippedSetNames) then
+        return false
+    end
+
+    for rawLine in macroBody:gmatch("[^\r\n]+") do
+        local line = strlower(rawLine)
+        if line:find("^%s*/equipset%s+") or line:find("^%s*/equipmentset%s+") then
+            for setName in pairs(equippedSetNames) do
+                if line:find(setName, 1, true) then
+                    return true
+                end
+            end
+        end
+    end
+
+    return false
+end
+
+function addon:ButtonMatchesEquippedArmorSet(actionButton, equippedSetNames)
+    if not actionButton or not actionButton.action then
+        return false
+    end
+
+    local actionType, actionID = GetActionInfo(actionButton.action)
+    if not actionType then
+        return false
+    end
+
+    local setName = ActionResolvesToEquipmentSetName(actionType, actionID)
+    local normalizedSetName = NormalizeEquipmentSetName(setName)
+    if normalizedSetName and equippedSetNames[normalizedSetName] then
+        return true
+    end
+
+    if actionType == "macro" and type(actionID) == "number" then
+        local _, _, macroBody = GetMacroInfo(actionID)
+        return MacroBodyReferencesEquippedSet(macroBody, equippedSetNames)
+    end
+
+    return false
+end
+
+function addon:ForEachActionBarButton(callback)
+    if ActionBarButtonEventsFrame and ActionBarButtonEventsFrame.ForEachFrame then
+        ActionBarButtonEventsFrame:ForEachFrame(function(actionButton)
+            callback(actionButton)
+        end)
+        return
+    end
+
+    local prefixes = {
+        "ActionButton",
+        "MultiBarBottomLeftButton",
+        "MultiBarBottomRightButton",
+        "MultiBarRightButton",
+        "MultiBarLeftButton",
+        "MultiBar5Button",
+        "MultiBar6Button",
+        "MultiBar7Button",
+        "MultiBar8Button",
+    }
+
+    for _, prefix in ipairs(prefixes) do
+        for index = 1, 12 do
+            local actionButton = _G[prefix .. index]
+            if actionButton then
+                callback(actionButton)
+            end
+        end
+    end
+end
+
+function addon:GetOrCreateArmorSetHighlightFrame(actionButton)
+    if not actionButton then
+        return nil
+    end
+
+    local frame = actionButton.GUITArmorSetHighlightFrame
+    if frame then
+        return frame
+    end
+
+    local ok, created = pcall(CreateFrame, "FRAME", nil, actionButton, "ActionBarButtonAssistedCombatHighlightTemplate")
+    if not ok or not created then
+        return nil
+    end
+
+    frame = created
+    frame:SetPoint("center")
+    if MainActionBar and MainActionBar.GetEndCapsFrameLevel then
+        frame:SetFrameLevel(math.max(1, MainActionBar:GetEndCapsFrameLevel() - 1))
+    else
+        frame:SetFrameLevel(math.max(1, actionButton:GetFrameLevel() - 1))
+    end
+
+    if frame.Flipbook and frame.Flipbook.Anim then
+        frame.Flipbook.Anim:Play()
+        frame.Flipbook.Anim:Stop()
+    end
+
+    actionButton.GUITArmorSetHighlightFrame = frame
+    return frame
+end
+
+function addon:SetArmorSetHighlightShown(actionButton, shown)
+    local frame = actionButton and actionButton.GUITArmorSetHighlightFrame
+    if not shown then
+        if frame then
+            frame:Hide()
+        end
+        return
+    end
+
+    frame = self:GetOrCreateArmorSetHighlightFrame(actionButton)
+    if frame then
+        frame:Show()
+    end
+end
+
+function addon:UpdateArmorSetActionHighlights()
+    if not self.db or not self.db.armorSetActionHighlightEnabled then
+        self:ForEachActionBarButton(function(actionButton)
+            self:SetArmorSetHighlightShown(actionButton, false)
+        end)
+        return
+    end
+
+    local equippedSetNames = self:GetEquippedArmorSetNames()
+    self:ForEachActionBarButton(function(actionButton)
+        local show = self:ButtonMatchesEquippedArmorSet(actionButton, equippedSetNames)
+        self:SetArmorSetHighlightShown(actionButton, show)
+    end)
+end
+
+function addon:EnsureArmorSetActionHighlightHooks()
+    if self.armorSetActionHighlightFrame then
+        return
+    end
+
+    local frame = CreateFrame("Frame")
+    frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    frame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+    frame:RegisterEvent("EQUIPMENT_SETS_CHANGED")
+    frame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
+    frame:RegisterEvent("ACTIONBAR_PAGE_CHANGED")
+    frame:RegisterEvent("UPDATE_BONUS_ACTIONBAR")
+    frame:RegisterEvent("UPDATE_VEHICLE_ACTIONBAR")
+    frame:RegisterEvent("UPDATE_OVERRIDE_ACTIONBAR")
+    frame:RegisterEvent("UPDATE_MACROS")
+    frame:SetScript("OnEvent", function()
+        C_Timer.After(0, function()
+            if addon and addon.UpdateArmorSetActionHighlights then
+                addon:UpdateArmorSetActionHighlights()
+            end
+        end)
+    end)
+
+    if EventRegistry and EventRegistry.RegisterCallback then
+        EventRegistry:RegisterCallback("ActionButton.OnActionChanged", function()
+            if addon and addon.UpdateArmorSetActionHighlights then
+                addon:UpdateArmorSetActionHighlights()
+            end
+        end, self)
+    end
+
+    self.armorSetActionHighlightFrame = frame
+end
+
+function addon:SetArmorSetActionHighlightEnabled(enabled)
+    if not self.db then
+        return
+    end
+
+    self.db.armorSetActionHighlightEnabled = enabled and true or false
+    self:EnsureArmorSetActionHighlightHooks()
+    self:UpdateArmorSetActionHighlights()
+end
+
 function addon:ApplyTweaks()
     if not self.db then
         return
@@ -559,6 +844,7 @@ function addon:ApplyTweaks()
     self:UpdateOverrideActionBar()
     self:SetPartyFrameCenteringEnabled(self.db.centerPartyFramesEnabled)
     self:SetRaidFrameCenteringEnabled(self.db.centerRaidFramesEnabled)
+    self:SetArmorSetActionHighlightEnabled(self.db.armorSetActionHighlightEnabled)
 
     -- Nameplate Tweaks
     self:UpdateNameplateScale()
