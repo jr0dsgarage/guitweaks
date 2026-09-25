@@ -1282,9 +1282,11 @@ function addon:CreateSettingsPanel()
         end)
 
         for _, group in ipairs(groupOrder) do
-            table.sort(grouped[group], function(a, b)
-                return a.name:lower() < b.name:lower()
-            end)
+            if grouped[group] then
+                table.sort(grouped[group], function(a, b)
+                    return a.name:lower() < b.name:lower()
+                end)
+            end
         end
 
         return fontList, grouped, groupOrder
