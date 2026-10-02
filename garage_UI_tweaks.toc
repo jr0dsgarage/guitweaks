@@ -1,4 +1,4 @@
-## Interface: 120005
+## Interface: 120005, 16001
 ## Title: Garage UI Tweaks
 ## Notes: Customizable UI tweaks for World of Warcraft
 ## Author: j__r0d
