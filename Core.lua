@@ -61,6 +61,7 @@ local defaults = {
         backgroundPanelWidth = 400,
         backgroundPanelHeight = 100,
         backgroundPanelForceWidth = false,
+        backgroundPanelForceHeight = false,
         backgroundPanelAnchor = "CENTER",
         backgroundPanelX = 0,
         backgroundPanelY = 0,

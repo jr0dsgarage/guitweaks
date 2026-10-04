@@ -830,7 +830,7 @@ function addon:CreateSettingsPanel()
     -------------------------------------------------------
     -- Background Panel Tab
     -------------------------------------------------------
-    local bgPanel = CreateSection(tabBackground, "Background Panel", "Configure the global background panel.", 300)
+    local bgPanel = CreateSection(tabBackground, "Background Panel", "Configure the global background panel.", 470)
 
     -- Enable Panel
     local chkBGEnable = CreateFrame("CheckButton", nil, bgPanel, "InterfaceOptionsCheckButtonTemplate")
@@ -857,10 +857,16 @@ function addon:CreateSettingsPanel()
     chkBGForce:SetPoint("TOPLEFT", chkBGLock, "BOTTOMLEFT", 0, -8)
     chkBGForce.Text:SetText("Force Screen Width")
     chkBGForce:SetChecked(addon.db.backgroundPanelForceWidth)
-    
+
+    -- Force Screen Height
+    local chkBGForceH = CreateFrame("CheckButton", nil, bgPanel, "InterfaceOptionsCheckButtonTemplate")
+    chkBGForceH:SetPoint("TOPLEFT", chkBGForce, "BOTTOMLEFT", 0, -8)
+    chkBGForceH.Text:SetText("Force Screen Height")
+    chkBGForceH:SetChecked(addon.db.backgroundPanelForceHeight)
+
     -- Color Picker
     local lblBGColor = bgPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    lblBGColor:SetPoint("TOPLEFT", chkBGForce, "BOTTOMLEFT", 0, -20)
+    lblBGColor:SetPoint("TOPLEFT", chkBGForceH, "BOTTOMLEFT", 0, -20)
     lblBGColor:SetText("Panel Color / Alpha")
     
     local btnBGColor = CreateFrame("Button", nil, bgPanel)
@@ -946,38 +952,70 @@ function addon:CreateSettingsPanel()
     lblDimensions:SetPoint("TOPLEFT", lblBGColor, "BOTTOMLEFT", 0, -20)
     lblDimensions:SetText("Dimensions (Width x Height)")
 
-    local editWidth = CreateFrame("EditBox", nil, bgPanel, "InputBoxTemplate")
-    editWidth:SetSize(60, 20)
-    editWidth:SetPoint("LEFT", lblDimensions, "RIGHT", 10, 0)
-    editWidth:SetAutoFocus(false)
-    editWidth:SetNumeric(true)
-    editWidth:SetNumber(addon.db.backgroundPanelWidth)
-    editWidth:SetScript("OnEnterPressed", function(self) 
-        addon.db.backgroundPanelWidth = self:GetNumber()
-        self:ClearFocus() 
+    -- Shared setter for edit boxes and sliders; refreshes every dimension control
+    local function SetBGDimension(key, value)
+        value = math.max(16, math.floor((tonumber(value) or 0) + 0.5))
+        if addon.db[key] == value then return end
+        addon.db[key] = value
         addon:UpdateBackgroundPanel()
-    end)
-    
+        addon:RefreshSettings("background")
+    end
+
+    local function CreateDimensionEdit(key)
+        local edit = CreateFrame("EditBox", nil, bgPanel, "InputBoxTemplate")
+        edit:SetSize(60, 20)
+        edit:SetAutoFocus(false)
+        edit:SetNumeric(true)
+        edit:SetScript("OnEnterPressed", function(self)
+            local value = self:GetNumber()
+            self:ClearFocus()
+            SetBGDimension(key, value)
+        end)
+        edit:SetScript("OnEscapePressed", function(self)
+            self:ClearFocus()
+            addon:RefreshSettings("background")
+        end)
+        edit:SetScript("OnEditFocusLost", function()
+            addon:RefreshSettings("background")
+        end)
+        return edit
+    end
+
+    local editWidth = CreateDimensionEdit("backgroundPanelWidth")
+    editWidth:SetPoint("LEFT", lblDimensions, "RIGHT", 10, 0)
+
     local lblX = bgPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     lblX:SetPoint("LEFT", editWidth, "RIGHT", 5, 0)
     lblX:SetText("x")
-    
-    local editHeight = CreateFrame("EditBox", nil, bgPanel, "InputBoxTemplate")
-    editHeight:SetSize(60, 20)
-    editHeight:SetPoint("LEFT", lblX, "RIGHT", 5, 0)
-    editHeight:SetAutoFocus(false)
-    editHeight:SetNumeric(true)
-    editHeight:SetNumber(addon.db.backgroundPanelHeight)
-    editHeight:SetScript("OnEnterPressed", function(self)
-        addon.db.backgroundPanelHeight = self:GetNumber()
-        self:ClearFocus()
-        addon:UpdateBackgroundPanel()
-    end)
 
+    local editHeight = CreateDimensionEdit("backgroundPanelHeight")
+    editHeight:SetPoint("LEFT", lblX, "RIGHT", 5, 0)
+
+    -- Width / Height Sliders (max is the screen size)
+    local bgRefreshing = false
+    local function CreateDimensionSlider(key, label, anchorTo)
+        local slider = CreateFrame("Slider", nil, bgPanel, "OptionsSliderTemplate")
+        slider:SetPoint("TOPLEFT", anchorTo, "BOTTOMLEFT", 0, -30)
+        slider:SetWidth(300)
+        slider:SetValueStep(1)
+        slider:SetObeyStepOnDrag(true)
+        slider.Low:SetText("16")
+        slider.label = label
+        slider:SetScript("OnValueChanged", function(self, value)
+            self.Text:SetText(string.format("%s: %d", label, math.floor(value + 0.5)))
+            if not bgRefreshing then
+                SetBGDimension(key, value)
+            end
+        end)
+        return slider
+    end
+
+    local sliderWidth = CreateDimensionSlider("backgroundPanelWidth", "Width", lblDimensions)
+    local sliderHeight = CreateDimensionSlider("backgroundPanelHeight", "Height", sliderWidth)
 
     -- Anchor Dropdown
     local lblAnchor = bgPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    lblAnchor:SetPoint("TOPLEFT", lblDimensions, "BOTTOMLEFT", 0, -20)
+    lblAnchor:SetPoint("TOPLEFT", sliderHeight, "BOTTOMLEFT", 0, -24)
     lblAnchor:SetText("Anchor Point")
 
     local dropAnchor = CreateFrame("Frame", "GarageUITweaksBGAnchorDrop", bgPanel, "UIDropDownMenuTemplate")
@@ -1035,44 +1073,69 @@ function addon:CreateSettingsPanel()
         addon.db.backgroundPanelY = 0
         addon.db.backgroundPanelAnchor = "CENTER"
         addon.db.backgroundPanelForceWidth = false
-        
+        addon.db.backgroundPanelForceHeight = false
+
         -- Update UI
         addon:UpdateBackgroundPanel()
         addon:RefreshSettings("background")
     end)
 
-
-    -- Force width update logic
-    local function UpdateWidthState()
-        if addon.db.backgroundPanelForceWidth then
-             editWidth:Disable()
-             editWidth:SetTextColor(0.5, 0.5, 0.5)
-        else
-             editWidth:Enable()
-             editWidth:SetTextColor(1, 1, 1)
-        end
+    local function SetDimensionControlEnabled(edit, slider, enabled)
+        edit:SetEnabled(enabled)
+        edit:SetTextColor(enabled and 1 or 0.5, enabled and 1 or 0.5, enabled and 1 or 0.5)
+        slider:SetEnabled(enabled)
+        slider:SetAlpha(enabled and 1 or 0.5)
     end
-    UpdateWidthState()
-    
-    chkBGForce:SetScript("OnClick", function(self)
-        addon.db.backgroundPanelForceWidth = self:GetChecked()
-        UpdateWidthState()
-        addon:UpdateBackgroundPanel()
-    end)
-    
+
     -- Listener for external updates (e.g. drag resizing)
     function addon:RefreshSettings(module)
-        if module == "background" and editWidth:IsVisible() then
-             -- Round to avoid excessive decimals
-             editWidth:SetNumber(math.floor(addon.db.backgroundPanelWidth + 0.5))
-             editHeight:SetNumber(math.floor(addon.db.backgroundPanelHeight + 0.5))
-             chkBGEnable:SetChecked(addon.db.backgroundPanelEnabled)
-             chkBGLock:SetChecked(addon.db.backgroundPanelLocked)
-             
-             UIDropDownMenu_SetSelectedValue(dropAnchor, addon.db.backgroundPanelAnchor)
-             UIDropDownMenu_SetText(dropAnchor, addon.db.backgroundPanelAnchor)
+        if module ~= "background" or not editWidth:IsVisible() then return end
+        local db = addon.db
+
+        -- Always show the panel's real size (screen size when forced)
+        local w, h = addon:GetBackgroundPanelSize()
+        local bgFrame = addon.backgroundPanel
+        if bgFrame and bgFrame.dragRect then
+            w, h = bgFrame.dragRect[3], bgFrame.dragRect[4]
         end
+        w, h = math.floor(w + 0.5), math.floor(h + 0.5)
+        local sw, sh = math.floor(GetScreenWidth() + 0.5), math.floor(GetScreenHeight() + 0.5)
+
+        if not editWidth:HasFocus() then editWidth:SetNumber(w) end
+        if not editHeight:HasFocus() then editHeight:SetNumber(h) end
+
+        bgRefreshing = true
+        sliderWidth:SetMinMaxValues(16, math.max(sw, w))
+        sliderWidth.High:SetText(sw)
+        sliderWidth:SetValue(w)
+        sliderHeight:SetMinMaxValues(16, math.max(sh, h))
+        sliderHeight.High:SetText(sh)
+        sliderHeight:SetValue(h)
+        bgRefreshing = false
+
+        SetDimensionControlEnabled(editWidth, sliderWidth, not db.backgroundPanelForceWidth)
+        SetDimensionControlEnabled(editHeight, sliderHeight, not db.backgroundPanelForceHeight)
+
+        chkBGEnable:SetChecked(db.backgroundPanelEnabled)
+        chkBGLock:SetChecked(db.backgroundPanelLocked)
+        chkBGForce:SetChecked(db.backgroundPanelForceWidth)
+        chkBGForceH:SetChecked(db.backgroundPanelForceHeight)
+
+        UIDropDownMenu_SetSelectedValue(dropAnchor, db.backgroundPanelAnchor)
+        UIDropDownMenu_SetText(dropAnchor, db.backgroundPanelAnchor)
     end
+
+    chkBGForce:SetScript("OnClick", function(self)
+        addon.db.backgroundPanelForceWidth = self:GetChecked()
+        addon:UpdateBackgroundPanel()
+        addon:RefreshSettings("background")
+    end)
+
+    chkBGForceH:SetScript("OnClick", function(self)
+        addon.db.backgroundPanelForceHeight = self:GetChecked()
+        addon:UpdateBackgroundPanel()
+        addon:RefreshSettings("background")
+    end)
 
 
     -- ====================
