@@ -20,6 +20,13 @@ local function UpdatePRDVisibility()
         return
     end
 
+    -- Nameplate CVars are protected during combat lockdown. UnitAffectingCombat can
+    -- drop before lockdown lifts (e.g. target dies), so bail here; PLAYER_REGEN_ENABLED
+    -- re-runs this once the lockdown ends.
+    if InCombatLockdown() then
+        return
+    end
+
     -- 2. Determine Desired State
     local inCombat = UnitAffectingCombat("player")
     local validTarget = false

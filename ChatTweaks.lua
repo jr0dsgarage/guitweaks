@@ -134,6 +134,13 @@ function addon:InitChatTweaks()
         end)
     end
 
+    -- Temporary whisper/conversation windows create new tabs on the fly
+    if FCF_OpenTemporaryWindow then
+        hooksecurefunc("FCF_OpenTemporaryWindow", function()
+            addon:UpdateChatTabs()
+        end)
+    end
+
     hookInstalled = true
     UpdateVisuals()
     addon:UpdateChatButtonBackgrounds()
@@ -232,6 +239,43 @@ function addon:UpdateChatButtonBackgrounds()
         else
             QuickJoinToastButton:Show()
         end
+    end
+
+    addon:UpdateChatTabs()
+end
+
+-- Chat Tabs
+local hookedTabs = {}
+
+function addon:UpdateChatTabs()
+    local hide = addon.db.hideChatTabs
+    for _, frameName in ipairs(CHAT_FRAMES or {}) do
+        local tab = _G[frameName .. "Tab"]
+        local chatFrame = _G[frameName]
+        if tab then
+            -- Blizzard re-shows tabs on dock updates / fades; keep them hidden while enabled
+            if not hookedTabs[tab] then
+                tab:HookScript("OnShow", function(self)
+                    if addon.db.hideChatTabs then
+                        self:Hide()
+                    end
+                end)
+                hookedTabs[tab] = true
+            end
+
+            if hide then
+                tab:Hide()
+            elseif chatFrame and (chatFrame:IsShown() or chatFrame.isDocked) then
+                -- Only restore tabs Blizzard would normally be showing
+                tab:Show()
+            end
+        end
+    end
+
+    if GeneralDockManagerOverflowButton and hide then
+        GeneralDockManagerOverflowButton:Hide()
+    elseif not hide and FCF_DockUpdate then
+        FCF_DockUpdate()
     end
 end
 

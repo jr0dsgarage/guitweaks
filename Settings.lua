@@ -408,7 +408,7 @@ function addon:CreateSettingsPanel()
     UIDropDownMenu_SetWidth(anchorDropdown, 120)
 
     -- Chat Frame Button Background
-    local chatButtonBG, chatButtonTitle = CreateSection(tabChat, "Chat Frame Buttons", "Hide the minimize button, background and borders on chat frames.", 140)
+    local chatButtonBG, chatButtonTitle = CreateSection(tabChat, "Chat Frame Buttons", "Hide the minimize button, background and borders on chat frames.", 170)
     
     local hideChatButtonBG = CreateFrame("CheckButton", nil, chatButtonBG, "InterfaceOptionsCheckButtonTemplate")
     hideChatButtonBG:SetPoint("TOPLEFT", chatButtonTitle, "BOTTOMLEFT", 0, -12)
@@ -443,6 +443,15 @@ function addon:CreateSettingsPanel()
     hideQuickJoinButton:SetChecked(addon.db.hideQuickJoinToastButton)
     hideQuickJoinButton:SetScript("OnClick", function(self)
         addon.db.hideQuickJoinToastButton = self:GetChecked()
+        addon:ApplyTweaks()
+    end)
+
+    local hideChatTabs = CreateFrame("CheckButton", nil, chatButtonBG, "InterfaceOptionsCheckButtonTemplate")
+    hideChatTabs:SetPoint("TOPLEFT", hideQuickJoinButton, "BOTTOMLEFT", 0, -4)
+    hideChatTabs.Text:SetText("Hide Chat Tabs")
+    hideChatTabs:SetChecked(addon.db.hideChatTabs)
+    hideChatTabs:SetScript("OnClick", function(self)
+        addon.db.hideChatTabs = self:GetChecked()
         addon:ApplyTweaks()
     end)
 

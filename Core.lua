@@ -53,6 +53,7 @@ local defaults = {
         hideChatFrameMenuButton = false,
         hideChatFrameChannelButton = false,
         hideQuickJoinToastButton = false,
+        hideChatTabs = false,
         prdShowWithTargetEnemy = false,
         prdShowWithTargetFriendly = false,
         backgroundPanelEnabled = false,
