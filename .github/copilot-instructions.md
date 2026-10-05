@@ -10,7 +10,7 @@ This is a World of Warcraft addon built using Lua and WoW's addon API. The addon
 - [`Utils.lua`](../Utils.lua): Shared utilities for printing, CVars, frame positioning, and backdrops
 - Feature modules: [`ErrorTextBackground.lua`](../ErrorTextBackground.lua), [`BattlegroundMap.lua`](../BattlegroundMap.lua), [`SpeedPanel.lua`](../SpeedPanel.lua), [`PersonalResourceDisplay.lua`](../PersonalResourceDisplay.lua), etc.
 
-**Load Order:** Defined in [`garage_UI_tweaks.toc`](../garage_UI_tweaks.toc) - Core.lua loads first, then Utils, then feature modules, finally Settings.lua
+**Load Order:** Defined in [`guitweaks.toc`](../guitweaks.toc) - Core.lua loads first, then Utils, then feature modules, finally Settings.lua
 
 ## WoW Addon Conventions
 
