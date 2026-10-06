@@ -94,7 +94,6 @@ function addon:CreateSettingsPanel()
     local tabPRD = CreateSettingsPage("prd", "PRD Tweaks", "Manage Personal Resource Display appearance and behavior.")
     local tabNameplates = CreateSettingsPage("nameplates", "Nameplate Tweaks", "Configure friendly nameplate appearance and scaling.")
     local tabBackground = CreateSettingsPage("background", "Background", "Background panel and visual backdrop options.")
-    local tabCrafting = CreateSettingsPage("crafting", "Crafting Tweaks", "Crafting-specific UI tweaks and persistence options.")
 
     -- Helper to add sections to a tab
     local function CreateSection(tab, titleText, descriptionText, height)
@@ -1642,59 +1641,6 @@ function addon:CreateSettingsPanel()
     local justifyText = selectedJustify == "LEFT" and "Left" or (selectedJustify == "RIGHT" and "Right" or "Center")
     UIDropDownMenu_SetSelectedValue(justifyDropdown, selectedJustify)
     UIDropDownMenu_SetText(justifyDropdown, justifyText)
-
-    -- ====================
-    -- CRAFTING TWEAKS TAB
-    -- ====================
-    local craftingOrderSection, craftingOrderTitle = CreateSection(tabCrafting, "Crafting Order Filters", "Remember the recipe filter settings on the Crafting Orders tab per profession.", 230)
-
-    local rememberFiltersCheck = CreateFrame("CheckButton", nil, craftingOrderSection, "InterfaceOptionsCheckButtonTemplate")
-    rememberFiltersCheck:SetPoint("TOPLEFT", craftingOrderTitle, "BOTTOMLEFT", 0, -12)
-    rememberFiltersCheck.Text:SetText("Remember filters per profession (Have Materials, etc.)")
-    rememberFiltersCheck:SetChecked(addon.db.rememberCraftingOrderFilters ~= false)
-    rememberFiltersCheck:SetScript("OnClick", function(self)
-        addon.db.rememberCraftingOrderFilters = self:GetChecked()
-        if addon.SetCraftingOrderFilterMemoryEnabled then
-            addon:SetCraftingOrderFilterMemoryEnabled(addon.db.rememberCraftingOrderFilters)
-        end
-    end)
-
-    local rememberFiltersInfo = craftingOrderSection:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    rememberFiltersInfo:SetPoint("TOPLEFT", rememberFiltersCheck, "BOTTOMLEFT", 4, -4)
-    rememberFiltersInfo:SetWidth(420)
-    rememberFiltersInfo:SetJustifyH("LEFT")
-    rememberFiltersInfo:SetText("Each profession saves its own filter set. Filters are saved when the panel closes and reapplied whenever you open the Orders tab.")
-
-    local professionColorsCheck = CreateFrame("CheckButton", nil, craftingOrderSection, "InterfaceOptionsCheckButtonTemplate")
-    professionColorsCheck:SetPoint("TOPLEFT", rememberFiltersInfo, "BOTTOMLEFT", -4, -16)
-    professionColorsCheck.Text:SetText("Enable recipe quality colors")
-    professionColorsCheck:SetChecked(addon.db.professionRecipeQualityColorEnabled ~= false)
-    professionColorsCheck:SetScript("OnClick", function(self)
-        addon.db.professionRecipeQualityColorEnabled = self:GetChecked()
-        if addon.SetProfessionRecipeQualityColorEnabled then
-            addon:SetProfessionRecipeQualityColorEnabled(addon.db.professionRecipeQualityColorEnabled)
-        end
-    end)
-
-    local professionColorsInfo = craftingOrderSection:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    professionColorsInfo:SetPoint("TOPLEFT", professionColorsCheck, "BOTTOMLEFT", 4, -4)
-    professionColorsInfo:SetWidth(420)
-    professionColorsInfo:SetJustifyH("LEFT")
-    professionColorsInfo:SetText("Color recipe names by the quality of the crafted item in profession recipe lists.")
-
-    local recipeTooltipCheck = CreateFrame("CheckButton", nil, craftingOrderSection, "InterfaceOptionsCheckButtonTemplate")
-    recipeTooltipCheck:SetPoint("TOPLEFT", professionColorsInfo, "BOTTOMLEFT", -4, -12)
-    recipeTooltipCheck.Text:SetText("Enable tooltips when hovering over recipe names")
-    recipeTooltipCheck:SetChecked(addon.db.professionRecipeNameTooltipEnabled == true)
-    recipeTooltipCheck:SetScript("OnClick", function(self)
-        addon.db.professionRecipeNameTooltipEnabled = self:GetChecked()
-    end)
-
-    local recipeTooltipInfo = craftingOrderSection:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    recipeTooltipInfo:SetPoint("TOPLEFT", recipeTooltipCheck, "BOTTOMLEFT", 4, -4)
-    recipeTooltipInfo:SetWidth(420)
-    recipeTooltipInfo:SetJustifyH("LEFT")
-    recipeTooltipInfo:SetText("When enabled, mousing over a recipe name in the professions list shows that recipe's tooltip.")
 
     addon.settingsPanel = panel
     addon.settingsPages = addon.settingsPages or {}

@@ -831,8 +831,6 @@ function addon:ApplyTweaks()
         return
     end
 
-    self:InitProfessionRecipeQualityColors()
-
     self:SetErrorTextBackground(self.db.errorTextBackgroundEnabled, self.db.errorTextBackgroundAlpha, self.db.errorTextBackgroundDuration)
     self:SetBattlegroundMapScale(self.db.battlegroundMapScale)
     self:ApplyExperienceBarStrata(self.db.experienceBarsForceHighestStrata)
@@ -853,8 +851,6 @@ function addon:ApplyTweaks()
     if self.db.nameplateUseClassColorForFriendlyPlayerUnitNames ~= nil then
         self:SetFriendlyClassColorCVar(self.db.nameplateUseClassColorForFriendlyPlayerUnitNames)
     end
-
-    self:SetProfessionRecipeQualityColorEnabled(self.db.professionRecipeQualityColorEnabled)
 
     self:InitEncounterBarPreyPercent()
 end
