@@ -8,7 +8,7 @@ This is a World of Warcraft addon built using Lua and WoW's addon API. The addon
 - [`Core.lua`](../Core.lua): Main initialization, event handling, addon namespace setup
 - [`Settings.lua`](../Settings.lua): Complex tabbed settings panel (1000+ lines) using WoW's Interface Options API
 - [`Utils.lua`](../Utils.lua): Shared utilities for printing, CVars, frame positioning, and backdrops
-- Feature modules: [`ErrorTextBackground.lua`](../ErrorTextBackground.lua), [`BattlegroundMap.lua`](../BattlegroundMap.lua), [`SpeedPanel.lua`](../SpeedPanel.lua), [`PersonalResourceDisplay.lua`](../PersonalResourceDisplay.lua), etc.
+- Feature modules: [`ErrorTextBackground.lua`](../ErrorTextBackground.lua), [`BattlegroundMap.lua`](../BattlegroundMap.lua), [`SpeedPanel.lua`](../SpeedPanel.lua), etc.
 
 **Load Order:** Defined in [`guitweaks.toc`](../guitweaks.toc) - Core.lua loads first, then Utils, then feature modules, finally Settings.lua
 
@@ -47,8 +47,6 @@ end)
 
 **CVar Management:**
 - Use `addon:SetCVar(cvar, value)` from Utils.lua (checks if value changed first)
-- Common CVars: `nameplateShowSelf`, `nameplatePersonalShowInCombat`
-- See [`PersonalResourceDisplay.lua:12-77`](../PersonalResourceDisplay.lua#L12-L77) for visibility control pattern
 
 **Adding New Settings:**
 1. Add default value to `defaults.profile` in [`Core.lua`](../Core.lua#L14-L60)
@@ -85,12 +83,6 @@ end
 frame:SetBackdrop({...})
 ```
 
-**Personal Resource Display (PRD) Customization:**
-- Hooks into Blizzard's nameplate system via `C_NamePlate.GetNamePlates()`
-- Must handle both `NamePlateDriverFrame` and individual nameplate frames
-- Texture application requires recursive search: `UnitFrame.healthBar`, `healthBars.healthBar`, `HealthBarsContainer.healthBar`
-- See [`PersonalResourceDisplay.lua:99-134`](../PersonalResourceDisplay.lua#L99-L134) for texture application recursion
-
 ## Common WoW API Patterns
 
 **Timer API:**
@@ -114,4 +106,3 @@ C_Timer.NewTicker(interval, function() ... end)  -- Repeating ticker
 - Enable debug output: Check if `addon.db.debug` exists before printing
 - Print helper: `addon:Print(msg)` adds green `[GarageT]` prefix
 - Common issues: Frame not updating → check if events are registered, CVars reverting → check if other addons conflict
-- PersonalResourceDisplay issues often caused by WoW API changes to nameplate structure paths

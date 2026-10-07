@@ -246,9 +246,51 @@ end
 
 -- Chat Tabs
 local hookedTabs = {}
+local tabsRevealed = false -- true while hover temporarily shows hidden tabs
+local TAB_STRIP_HEIGHT = 30 -- how far above a chat frame counts as the tab area
+local HOVER_POLL_INTERVAL = 0.1
+
+local function TabsShouldHide()
+    return addon.db.hideChatTabs and not tabsRevealed
+end
+
+local function IsMouseOverChatArea()
+    for _, frameName in ipairs(CHAT_FRAMES or {}) do
+        local chatFrame = _G[frameName]
+        if chatFrame and chatFrame:IsShown() and chatFrame:IsMouseOver(TAB_STRIP_HEIGHT, 0, 0, 0) then
+            return true
+        end
+        local tab = _G[frameName .. "Tab"]
+        if tab and tab:IsShown() and tab:IsMouseOver() then
+            return true
+        end
+    end
+    return false
+end
+
+local hoverWatcher = CreateFrame("Frame")
+hoverWatcher:Hide()
+local hoverElapsed = 0
+hoverWatcher:SetScript("OnUpdate", function(_, elapsed)
+    hoverElapsed = hoverElapsed + elapsed
+    if hoverElapsed < HOVER_POLL_INTERVAL then return end
+    hoverElapsed = 0
+
+    local over = IsMouseOverChatArea()
+    if over ~= tabsRevealed then
+        tabsRevealed = over
+        addon:UpdateChatTabs()
+    end
+end)
 
 function addon:UpdateChatTabs()
-    local hide = addon.db.hideChatTabs
+    local hoverEnabled = addon.db.hideChatTabs and addon.db.showChatTabsOnHover
+    hoverWatcher:SetShown(hoverEnabled)
+    if not hoverEnabled then
+        tabsRevealed = false
+    end
+
+    local hide = TabsShouldHide()
     for _, frameName in ipairs(CHAT_FRAMES or {}) do
         local tab = _G[frameName .. "Tab"]
         local chatFrame = _G[frameName]
@@ -256,7 +298,7 @@ function addon:UpdateChatTabs()
             -- Blizzard re-shows tabs on dock updates / fades; keep them hidden while enabled
             if not hookedTabs[tab] then
                 tab:HookScript("OnShow", function(self)
-                    if addon.db.hideChatTabs then
+                    if TabsShouldHide() then
                         self:Hide()
                     end
                 end)

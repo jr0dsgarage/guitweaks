@@ -91,7 +91,6 @@ function addon:CreateSettingsPanel()
     local tabFrameAdjustments = CreateSettingsPage("frameadjustments", "Frame Adjustments", "Adjust frame strata and status tracking positioning.")
     local tabChat = CreateSettingsPage("chat", "Chat Tweaks", "Customize chat behavior and chat frame controls.")
     local tabSpeed = CreateSettingsPage("speed", "Speed Tweaks", "Configure movement speed display options.")
-    local tabPRD = CreateSettingsPage("prd", "PRD Tweaks", "Manage Personal Resource Display appearance and behavior.")
     local tabNameplates = CreateSettingsPage("nameplates", "Nameplate Tweaks", "Configure friendly nameplate appearance and scaling.")
     local tabBackground = CreateSettingsPage("background", "Background", "Background panel and visual backdrop options.")
 
@@ -333,7 +332,7 @@ function addon:CreateSettingsPanel()
     -- ====================
     -- CHAT TAB
     -- ====================
-    local chatPanel, chatTitle = CreateSection(tabChat, "Chat Entry Box", "Customize the position and appearance of the chat input box.", 300)
+    local chatPanel, chatTitle = CreateSection(tabChat, "Chat Entry Box", "Customize the position and appearance of the chat input box.", 230)
 
     -- Unlock / Drag
     local chatUnlock = CreateFrame("CheckButton", nil, chatPanel, "InterfaceOptionsCheckButtonTemplate")
@@ -445,12 +444,37 @@ function addon:CreateSettingsPanel()
         addon:ApplyTweaks()
     end)
 
-    local hideChatTabs = CreateFrame("CheckButton", nil, chatButtonBG, "InterfaceOptionsCheckButtonTemplate")
-    hideChatTabs:SetPoint("TOPLEFT", hideQuickJoinButton, "BOTTOMLEFT", 0, -4)
+    -- Chat Tabs
+    local chatTabsGroup, chatTabsTitle = CreateSection(tabChat, "Chat Tabs", "Control visibility of the tabs above chat frames.", 110)
+
+    local hideChatTabs = CreateFrame("CheckButton", nil, chatTabsGroup, "InterfaceOptionsCheckButtonTemplate")
+    hideChatTabs:SetPoint("TOPLEFT", chatTabsTitle, "BOTTOMLEFT", 0, -10)
     hideChatTabs.Text:SetText("Hide Chat Tabs")
     hideChatTabs:SetChecked(addon.db.hideChatTabs)
+
+    local showChatTabsOnHover = CreateFrame("CheckButton", nil, chatTabsGroup, "InterfaceOptionsCheckButtonTemplate")
+    showChatTabsOnHover:SetPoint("TOPLEFT", hideChatTabs, "BOTTOMLEFT", 16, -6)
+    showChatTabsOnHover.Text:SetText("Show Chat Tabs on Hover")
+    showChatTabsOnHover:SetChecked(addon.db.showChatTabsOnHover)
+    showChatTabsOnHover:SetScript("OnClick", function(self)
+        addon.db.showChatTabsOnHover = self:GetChecked()
+        addon:ApplyTweaks()
+    end)
+
+    local function UpdateChatTabHoverControl()
+        if addon.db.hideChatTabs then
+            showChatTabsOnHover:Enable()
+            showChatTabsOnHover.Text:SetTextColor(1, 1, 1)
+        else
+            showChatTabsOnHover:Disable()
+            showChatTabsOnHover.Text:SetTextColor(0.5, 0.5, 0.5)
+        end
+    end
+    UpdateChatTabHoverControl()
+
     hideChatTabs:SetScript("OnClick", function(self)
         addon.db.hideChatTabs = self:GetChecked()
+        UpdateChatTabHoverControl()
         addon:ApplyTweaks()
     end)
 
@@ -518,322 +542,6 @@ function addon:CreateSettingsPanel()
 
     resetButton:SetScript("OnClick", function() addon:ResetSpeedPanelPosition() end)
     UpdateSpeedControls()
-
-    -- ====================
-    -- PRD TAB
-    -- ====================
-    local prdPanel, prdTitle = CreateSection(tabPRD, "Personal Resource Display", "Manage appearance of the Personal Resource Display (PRD).", 200)
-
-    -- Visibility Options
-    local enemyTargetCheck = CreateFrame("CheckButton", nil, prdPanel, "InterfaceOptionsCheckButtonTemplate")
-    enemyTargetCheck:SetPoint("TOPLEFT", prdTitle, "BOTTOMLEFT", 0, -12)
-    enemyTargetCheck.Text:SetText("Show when Enemy Target Selected")
-    enemyTargetCheck:SetChecked(addon.db.prdShowWithTargetEnemy)
-    enemyTargetCheck:SetScript("OnClick", function(self)
-        addon.db.prdShowWithTargetEnemy = self:GetChecked()
-        addon:SetPRDVisibilityOptions()
-    end)
-
-    local friendlyTargetCheck = CreateFrame("CheckButton", nil, prdPanel, "InterfaceOptionsCheckButtonTemplate")
-    friendlyTargetCheck:SetPoint("TOPLEFT", enemyTargetCheck, "BOTTOMLEFT", 0, -8)
-    friendlyTargetCheck.Text:SetText("Show when Friendly Target Selected")
-    friendlyTargetCheck:SetChecked(addon.db.prdShowWithTargetFriendly)
-    friendlyTargetCheck:SetScript("OnClick", function(self)
-        addon.db.prdShowWithTargetFriendly = self:GetChecked()
-        addon:SetPRDVisibilityOptions()
-    end)
-
-    -- Texture Selection Helper
-    local function CreateTextureDropdown(label, dbKey, updateFunc, anchorParent, relativeTo, x, y)
-        local lbl = anchorParent:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-        lbl:SetPoint("TOPLEFT", relativeTo, "BOTTOMLEFT", x, y)
-        lbl:SetText(label)
-
-        local dropdown = CreateFrame("Frame", "GUIT_" .. dbKey, anchorParent, "UIDropDownMenuTemplate")
-        dropdown:SetPoint("TOPLEFT", lbl, "BOTTOMLEFT", -16, -2)
-
-        local function InitMenu(self, level, menuList)
-            local selected = addon.db[dbKey] or "Interface\\TargetingFrame\\UI-TargetingFrame-BarFill"
-            local info = UIDropDownMenu_CreateInfo()
-            
-            -- Default
-            info.text = "Blizzard Default"
-            info.value = "Interface\\TargetingFrame\\UI-TargetingFrame-BarFill"
-            info.func = function(b) updateFunc(b.value) UIDropDownMenu_SetSelectedValue(dropdown, b.value) end
-            info.checked = (selected == info.value)
-            UIDropDownMenu_AddButton(info)
-
-            -- LSM
-            if LSM then
-                 local textures = LSM:HashTable("statusbar")
-                 local keys = {}
-                 for k in pairs(textures) do table.insert(keys, k) end
-                 table.sort(keys)
-                 for _, k in ipairs(keys) do
-                     local path = textures[k]
-                     info = UIDropDownMenu_CreateInfo()
-                     info.text = k
-                     info.value = path
-                     info.func = function(b) updateFunc(b.value) UIDropDownMenu_SetSelectedValue(dropdown, b.value) end
-                     info.checked = (selected == path)
-                     UIDropDownMenu_AddButton(info)
-                 end
-            end
-        end
-
-        UIDropDownMenu_Initialize(dropdown, InitMenu)
-        
-        -- Set Initial Text
-        local currentTex = addon.db[dbKey] or "Interface\\TargetingFrame\\UI-TargetingFrame-BarFill"
-        local friendlyName = "Custom/Unknown"
-        if currentTex == "Interface\\TargetingFrame\\UI-TargetingFrame-BarFill" then friendlyName = "Blizzard Default" end
-        if LSM then
-            for name, path in pairs(LSM:HashTable("statusbar")) do
-                if path == currentTex then friendlyName = name break end
-            end
-        end
-        UIDropDownMenu_SetText(dropdown, friendlyName)
-        UIDropDownMenu_SetWidth(dropdown, 180)
-        
-        return dropdown, lbl
-    end
-
-    -- Color Picker Helper
-    local function CreateColorPicker(parent, dbKey, updateFunc, relativeTo, x, y)
-        local swatch = CreateFrame("Button", nil, parent, "BackdropTemplate")
-        swatch:SetSize(20, 20)
-        swatch:SetPoint("LEFT", relativeTo, "RIGHT", x, y)
-        swatch:SetBackdrop({
-            edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1,
-            bgFile = "Interface\\Buttons\\WHITE8x8", tiling = false
-        })
-        swatch:SetBackdropBorderColor(0.6, 0.6, 0.6)
-        
-        local function UpdateSwatch()
-            local c = addon.db[dbKey] or {r=0, g=0, b=0, a=0.5}
-            swatch:SetBackdropColor(c.r, c.g, c.b, c.a or 1)
-        end
-        UpdateSwatch()
-
-        swatch:SetScript("OnClick", function()
-            local c = addon.db[dbKey] or {r=0, g=0, b=0, a=0.5}
-            
-            local function GetAlphaSafe()
-                if ColorPickerFrame.GetColorAlpha then
-                    return ColorPickerFrame:GetColorAlpha()
-                elseif OpacitySliderFrame then
-                    return 1 - OpacitySliderFrame:GetValue()
-                end
-                return 1
-            end
-
-            local info = {
-                r = c.r, g = c.g, b = c.b, opacity = (1 - (c.a or 1)),
-                hasOpacity = true,
-                swatchFunc = function()
-                    local r, g, b = ColorPickerFrame:GetColorRGB()
-                    local a = GetAlphaSafe()
-                    addon.db[dbKey] = {r=r, g=g, b=b, a=a}
-                    swatch:SetBackdropColor(r, g, b, a)
-                    if updateFunc then updateFunc() end
-                end,
-                opacityFunc = function()
-                    local r, g, b = ColorPickerFrame:GetColorRGB()
-                    local a = GetAlphaSafe()
-                    addon.db[dbKey] = {r=r, g=g, b=b, a=a}
-                    swatch:SetBackdropColor(r, g, b, a)
-                    if updateFunc then updateFunc() end
-                end,
-                cancelFunc = function()
-                    addon.db[dbKey] = c
-                    UpdateSwatch()
-                    if updateFunc then updateFunc() end
-                end,
-            }
-            -- Fix for modern ColorPickerFrame opacity handling if accessible
-            if ColorPickerFrame.Content and ColorPickerFrame.Content.ColorPicker then
-                 -- Setup might be different, but usually SetupColorPickerAndShow handles mapping
-                 -- Just ensuring we don't crash is step 1.
-            end
-            ColorPickerFrame:SetupColorPickerAndShow(info)
-        end)
-        return swatch
-    end
-
-    -- Group Box Helper
-    local function CreateGroupBox(titleText, parent, relativeTo, height)
-        local group = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-        group:SetBackdrop({
-            bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-            tile = true, tileSize = 16, edgeSize = 12,
-            insets = { left = 3, right = 3, top = 3, bottom = 3 }
-        })
-        group:SetBackdropColor(0.15, 0.15, 0.15, 0.5)
-        group:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.6)
-        
-        if relativeTo then
-            group:SetPoint("TOPLEFT", relativeTo, "BOTTOMLEFT", 0, -10)
-        else
-            group:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -10)
-        end
-        group:SetPoint("RIGHT", parent, "RIGHT", -10, 0)
-        group:SetHeight(height)
-
-        local title = group:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-        title:SetPoint("TOPLEFT", 8, -8)
-        title:SetText(titleText)
-        
-        return group
-    end
-
-    -- Create Dropdowns & Groups
-    
-    -- 1. Health Bar Group
-    local grpHealth = CreateGroupBox("Health Bar", prdPanel, friendlyTargetCheck, 110)
-    
-    local chkMatchHealth = CreateFrame("CheckButton", nil, grpHealth, "InterfaceOptionsCheckButtonTemplate")
-    chkMatchHealth:SetPoint("TOPLEFT", grpHealth, "TOPLEFT", 10, -25)
-    chkMatchHealth.Text:SetText("Match Player Frame Texture")
-    chkMatchHealth:SetChecked(addon.db.prdMatchHealth)
-    
-    local dropHealth, lblHealth = CreateTextureDropdown("Bar Texture", "prdTextureHealth", function(v) addon.db.prdTextureHealth = v; addon:UpdatePRDTextures() end, grpHealth, nil, 10, -30)
-    dropHealth:ClearAllPoints()
-    dropHealth:SetPoint("TOPLEFT", grpHealth, "TOPLEFT", 10, -65)
-    lblHealth:SetPoint("TOPLEFT", dropHealth, "TOPLEFT", 0, 16)
-    
-    local dropHealthBG, lblHealthBG = CreateTextureDropdown("Background Texture", "prdBackgroundHealth", function(v) addon.db.prdBackgroundHealth = v; addon:UpdatePRDTextures() end, grpHealth, nil, 230, 0)
-    dropHealthBG:ClearAllPoints()
-    dropHealthBG:SetPoint("TOPLEFT", grpHealth, "TOPLEFT", 230, -65)
-    lblHealthBG:SetPoint("TOPLEFT", dropHealthBG, "TOPLEFT", 0, 16)
-    
-    local cpHealth = CreateColorPicker(grpHealth, "prdBackgroundHealthColor", function() addon:UpdatePRDTextures() end, dropHealthBG, 170, 0)
-    -- Need to manually position cpHealth better to ensure visibility
-    cpHealth:ClearAllPoints()
-    cpHealth:SetPoint("LEFT", dropHealthBG, "RIGHT", -10, 2) -- To the right of the dropdown
-
-    -- Logic to Grey Out
-    local function UpdateHealthState() 
-       local match = addon.db.prdMatchHealth
-       if match then
-           UIDropDownMenu_DisableDropDown(dropHealth)
-           lblHealth:SetTextColor(0.5, 0.5, 0.5)
-           UIDropDownMenu_DisableDropDown(dropHealthBG)
-           lblHealthBG:SetTextColor(0.5, 0.5, 0.5)
-           cpHealth:Disable()
-           cpHealth:SetAlpha(0.5)
-       else
-           UIDropDownMenu_EnableDropDown(dropHealth)
-           lblHealth:SetTextColor(1, 1, 1)
-           UIDropDownMenu_EnableDropDown(dropHealthBG)
-           lblHealthBG:SetTextColor(1, 1, 1)
-           cpHealth:Enable()
-           cpHealth:SetAlpha(1)
-       end
-    end
-    UpdateHealthState()
-
-    chkMatchHealth:SetScript("OnClick", function(self)
-        addon.db.prdMatchHealth = self:GetChecked()
-        UpdateHealthState()
-        addon:UpdatePRDTextures()
-    end)
-    
-    -- 2. Power Bar Group
-    local grpPower = CreateGroupBox("Power Bar", prdPanel, grpHealth, 110)
-    
-    local chkMatchPower = CreateFrame("CheckButton", nil, grpPower, "InterfaceOptionsCheckButtonTemplate")
-    chkMatchPower:SetPoint("TOPLEFT", grpPower, "TOPLEFT", 10, -25)
-    chkMatchPower.Text:SetText("Match Player Frame Texture")
-    chkMatchPower:SetChecked(addon.db.prdMatchPower)
-
-    local dropPower, lblPower = CreateTextureDropdown("Bar Texture", "prdTexturePower", function(v) addon.db.prdTexturePower = v; addon:UpdatePRDTextures() end, grpPower, nil, 10, -35)
-    dropPower:ClearAllPoints(); dropPower:SetPoint("TOPLEFT", grpPower, "TOPLEFT", 10, -65)
-    lblPower:SetPoint("TOPLEFT", dropPower, "TOPLEFT", 0, 16)
-    
-    local dropPowerBG, lblPowerBG = CreateTextureDropdown("Background Texture", "prdBackgroundPower", function(v) addon.db.prdBackgroundPower = v; addon:UpdatePRDTextures() end, grpPower, nil, 230, -35)
-    dropPowerBG:ClearAllPoints(); dropPowerBG:SetPoint("TOPLEFT", grpPower, "TOPLEFT", 230, -65)
-    lblPowerBG:SetPoint("TOPLEFT", dropPowerBG, "TOPLEFT", 0, 16)
-
-    local cpPower = CreateColorPicker(grpPower, "prdBackgroundPowerColor", function() addon:UpdatePRDTextures() end, dropPowerBG, 170, 0)
-    cpPower:ClearAllPoints()
-    cpPower:SetPoint("LEFT", dropPowerBG, "RIGHT", -10, 2)
-    
-    local function UpdatePowerState() 
-       local match = addon.db.prdMatchPower
-       if match then
-           UIDropDownMenu_DisableDropDown(dropPower)
-           lblPower:SetTextColor(0.5, 0.5, 0.5)
-           UIDropDownMenu_DisableDropDown(dropPowerBG)
-           lblPowerBG:SetTextColor(0.5, 0.5, 0.5)
-           cpPower:Disable()
-           cpPower:SetAlpha(0.5)
-       else
-           UIDropDownMenu_EnableDropDown(dropPower)
-           lblPower:SetTextColor(1, 1, 1)
-           UIDropDownMenu_EnableDropDown(dropPowerBG)
-           lblPowerBG:SetTextColor(1, 1, 1)
-           cpPower:Enable()
-           cpPower:SetAlpha(1)
-       end
-    end
-    UpdatePowerState()
-
-    chkMatchPower:SetScript("OnClick", function(self)
-        addon.db.prdMatchPower = self:GetChecked()
-        UpdatePowerState()
-        addon:UpdatePRDTextures()
-    end)
-
-
-    -- 3. Alt Bar Group
-    local grpAlt = CreateGroupBox("Class/Alternate Bar", prdPanel, grpPower, 110)
-
-    local chkMatchAlt = CreateFrame("CheckButton", nil, grpAlt, "InterfaceOptionsCheckButtonTemplate")
-    chkMatchAlt:SetPoint("TOPLEFT", grpAlt, "TOPLEFT", 10, -25)
-    chkMatchAlt.Text:SetText("Match Player Frame Texture")
-    chkMatchAlt:SetChecked(addon.db.prdMatchAlternate)
-
-    local dropAlt, lblAlt = CreateTextureDropdown("Bar Texture", "prdTextureAlternate", function(v) addon.db.prdTextureAlternate = v; addon:UpdatePRDTextures() end, grpAlt, nil, 10, -35)
-    dropAlt:ClearAllPoints(); dropAlt:SetPoint("TOPLEFT", grpAlt, "TOPLEFT", 10, -65)
-    lblAlt:SetPoint("TOPLEFT", dropAlt, "TOPLEFT", 0, 16)
-    
-    local dropAltBG, lblAltBG = CreateTextureDropdown("Background Texture", "prdBackgroundAlternate", function(v) addon.db.prdBackgroundAlternate = v; addon:UpdatePRDTextures() end, grpAlt, nil, 230, -35)
-    dropAltBG:ClearAllPoints(); dropAltBG:SetPoint("TOPLEFT", grpAlt, "TOPLEFT", 230, -65)
-    lblAltBG:SetPoint("TOPLEFT", dropAltBG, "TOPLEFT", 0, 16)
-
-    local cpAlt = CreateColorPicker(grpAlt, "prdBackgroundAlternateColor", function() addon:UpdatePRDTextures() end, dropAltBG, 170, 0)
-    cpAlt:ClearAllPoints()
-    cpAlt:SetPoint("LEFT", dropAltBG, "RIGHT", -10, 2)
-    
-    local function UpdateAltState() 
-       local match = addon.db.prdMatchAlternate
-       if match then
-           UIDropDownMenu_DisableDropDown(dropAlt)
-           lblAlt:SetTextColor(0.5, 0.5, 0.5)
-           UIDropDownMenu_DisableDropDown(dropAltBG)
-           lblAltBG:SetTextColor(0.5, 0.5, 0.5)
-           cpAlt:Disable()
-           cpAlt:SetAlpha(0.5)
-       else
-           UIDropDownMenu_EnableDropDown(dropAlt)
-           lblAlt:SetTextColor(1, 1, 1)
-           UIDropDownMenu_EnableDropDown(dropAltBG)
-           lblAltBG:SetTextColor(1, 1, 1)
-           cpAlt:Enable()
-           cpAlt:SetAlpha(1)
-       end
-    end
-    UpdateAltState()
-
-    chkMatchAlt:SetScript("OnClick", function(self)
-        addon.db.prdMatchAlternate = self:GetChecked()
-        UpdateAltState()
-        addon:UpdatePRDTextures()
-    end)
-    
-    -- Increase height of section to fit
-    prdPanel:SetHeight(540)
 
     -------------------------------------------------------
     -- Background Panel Tab
