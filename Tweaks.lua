@@ -111,59 +111,123 @@ function addon:GetFriendlyNameAnchorFrame(frame)
     return frame
 end
 
+local function CreateFriendlyNameLine(anchor)
+    local line = anchor:CreateFontString(nil, "OVERLAY")
+    line:SetDrawLayer("OVERLAY", 7)
+    line:SetWordWrap(false)
+    line:SetMaxLines(1)
+    line:SetShadowOffset(1, -1)
+    line:SetShadowColor(0, 0, 0, 1)
+    return line
+end
+
+-- Returns the name, title and guild lines for a nameplate, and the frame they hang off.
 function addon:GetOrCreateFriendlyNameText(frame)
     local anchor = self:GetFriendlyNameAnchorFrame(frame)
     if not anchor then
-        return nil, nil
+        return nil, nil, nil, nil
     end
 
-    if not anchor.GUITFriendlyNameText then
-        local text = anchor:CreateFontString(nil, "OVERLAY")
-        text:SetDrawLayer("OVERLAY", 7)
-        text:SetWordWrap(false)
-        text:SetMaxLines(1)
-        text:SetShadowOffset(1, -1)
-        text:SetShadowColor(0, 0, 0, 1)
-        anchor.GUITFriendlyNameText = text
+    anchor.GUITFriendlyNameText = anchor.GUITFriendlyNameText or CreateFriendlyNameLine(anchor)
+    anchor.GUITFriendlyTitleText = anchor.GUITFriendlyTitleText or CreateFriendlyNameLine(anchor)
+    anchor.GUITFriendlyGuildText = anchor.GUITFriendlyGuildText or CreateFriendlyNameLine(anchor)
+
+    return anchor.GUITFriendlyNameText, anchor.GUITFriendlyTitleText, anchor.GUITFriendlyGuildText, anchor
+end
+
+local FRIENDLY_LINE_SPACING = 2
+local FRIENDLY_GUILD_FONT_SCALE = 0.85
+
+-- Stacks a line on top of `below` (or on the nameplate itself when `below` is the anchor frame).
+local function PlaceFriendlyLine(line, below, isAnchor, justify, offsetX, offsetY, spacing)
+    line:SetWidth(0)
+    line:SetJustifyH(justify)
+    line:ClearAllPoints()
+    if not isAnchor then
+        offsetX, offsetY = 0, spacing
+    end
+    if justify == "LEFT" then
+        line:SetPoint("BOTTOMLEFT", below, "TOPLEFT", offsetX, offsetY)
+    elseif justify == "RIGHT" then
+        line:SetPoint("BOTTOMRIGHT", below, "TOPRIGHT", offsetX, offsetY)
+    else
+        line:SetPoint("BOTTOM", below, "TOP", offsetX, offsetY)
+    end
+end
+
+local function SetFriendlyLineFont(line, fontPath, fontSize, fontFlags)
+    -- Only an explicit false is a failure; SetFont returns nothing on success here
+    if line:SetFont(fontPath, fontSize, fontFlags) == false then
+        line:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", fontSize, fontFlags)
+    end
+end
+
+-- Resizes friendly players' nameplates by scaling the unit frame inside the plate. The
+-- plate itself is sized by the game engine, which is why Blizzard's own scale setting
+-- can't be tuned from here. Returns the scale in effect.
+function addon:ApplyFriendlyScaleToFrame(frame, unit)
+    local unitFrame = frame and frame.UnitFrame
+    if not unitFrame or not unitFrame.SetScale or (unitFrame.IsForbidden and unitFrame:IsForbidden()) then
+        return 1
     end
 
-    if not anchor.GUITFriendlyTitleText then
-        local titleText = anchor:CreateFontString(nil, "OVERLAY")
-        titleText:SetDrawLayer("OVERLAY", 7)
-        titleText:SetWordWrap(false)
-        titleText:SetMaxLines(1)
-        titleText:SetShadowOffset(1, -1)
-        titleText:SetShadowColor(0, 0, 0, 1)
-        anchor.GUITFriendlyTitleText = titleText
+    local scale = 1
+    -- Your target keeps Blizzard's normal size, whichever way the others are scaled
+    if unit and IsFriendlyPlayerUnit(unit) and not (UnitExists("target") and UnitIsUnit(unit, "target")) then
+        scale = self.db.nameplateFriendlyScale or 1
     end
 
-    return anchor.GUITFriendlyNameText, anchor.GUITFriendlyTitleText, anchor
+    -- Plates are recycled between units, so once any plate has been resized every plate
+    -- must be set, including back to 1. Until then, leave Blizzard's frames untouched.
+    if scale ~= 1 then
+        self.friendlyScaleUsed = true
+    end
+    if not self.friendlyScaleUsed then
+        return 1
+    end
+
+    unitFrame:SetScale(scale)
+
+    -- Blizzard pins the unit frame to all four edges of the plate, so scaling alone only
+    -- makes its contents taller. Give it the plate's own size instead, so the scale applies
+    -- to the width too, growing sideways and upward from the plate's bottom edge.
+    local width, height
+    if scale ~= 1 and C_NamePlate.GetNamePlateSize then
+        width, height = C_NamePlate.GetNamePlateSize()
+    end
+
+    unitFrame:ClearAllPoints()
+    if width and height and width > 0 and height > 0 then
+        unitFrame:SetPoint("BOTTOM", frame, "BOTTOM", 0, 0)
+        unitFrame:SetSize(width, height)
+    else
+        unitFrame:SetAllPoints(frame)
+    end
+
+    return scale
 end
 
 function addon:ApplyFriendlyNameToFrame(frame)
-    local text, titleText, anchor = self:GetOrCreateFriendlyNameText(frame)
+    local text, titleText, guildText, anchor = self:GetOrCreateFriendlyNameText(frame)
     if not text or not anchor or not frame then
         return
     end
 
-    local enabled = self.db.nameplateFriendlyNamesEnabled
-    local unit = ResolveNameplateUnit(frame)
-
-    if not unit then
+    local function HideAll()
         text:Hide()
-        if titleText then titleText:Hide() end
-        return
+        titleText:Hide()
+        guildText:Hide()
     end
 
-    if not enabled or not IsFriendlyPlayerUnit(unit) then
-        text:Hide()
-        if titleText then titleText:Hide() end
+    local unit = ResolveNameplateUnit(frame)
+    local plateScale = self:ApplyFriendlyScaleToFrame(frame, unit)
+    if not unit or not self.db.nameplateFriendlyNamesEnabled or not IsFriendlyPlayerUnit(unit) then
+        HideAll()
         return
     end
 
     if UnitExists("target") and UnitIsUnit(unit, "target") then
-        text:Hide()
-        if titleText then titleText:Hide() end
+        HideAll()
         return
     end
 
@@ -214,13 +278,22 @@ function addon:ApplyFriendlyNameToFrame(frame)
     end
 
     if not bottomText or bottomText == "" then
-        text:Hide()
-        if titleText then titleText:Hide() end
+        HideAll()
         return
     end
 
+    -- The guild name may be a secret value on 12.x, which can be shown but not compared
+    local guildName
+    if self.db.nameplateFriendlyNamesShowGuild then
+        guildName = GetGuildInfo(unit)
+        if guildName and not (issecretvalue and issecretvalue(guildName)) and guildName == "" then
+            guildName = nil
+        end
+    end
+
     local fontPath = self.db.nameplateFriendlyNameFont or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
-    local fontSize = self.db.nameplateFriendlyNameSize or 13
+    -- The lines are children of the scaled unit frame; divide so they keep their real size
+    local fontSize = (self.db.nameplateFriendlyNameSize or 13) / plateScale
     local outline = (self.db.nameplateFriendlyNameOutline or "OUTLINE"):upper()
     local fontFlags = nil
     if outline == "OUTLINE" then
@@ -228,86 +301,50 @@ function addon:ApplyFriendlyNameToFrame(frame)
     elseif outline == "THICKOUTLINE" then
         fontFlags = "THICKOUTLINE"
     end
-    if not text:SetFont(fontPath, fontSize, fontFlags) then
-        text:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", fontSize, fontFlags)
-    end
 
     local justify = (self.db.nameplateFriendlyNameJustify or "CENTER"):upper()
-    local offsetX = self.db.nameplateFriendlyNameOffsetX or 0
-    local offsetY = self.db.nameplateFriendlyNameOffsetY or 10
+    local offsetX = (self.db.nameplateFriendlyNameOffsetX or 0) / plateScale
+    local offsetY = (self.db.nameplateFriendlyNameOffsetY or 10) / plateScale
+    local spacing = FRIENDLY_LINE_SPACING / plateScale
+    local r, g, b, a = self:GetFriendlyNameColor(unit)
 
-    text:SetWidth(0)
-    text:SetJustifyH(justify)
-    text:ClearAllPoints()
-    if justify == "LEFT" then
-        text:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", offsetX, offsetY)
-    elseif justify == "RIGHT" then
-        text:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", offsetX, offsetY)
+    -- Lines stack upward from the nameplate: guild, then name, then title. The guild
+    -- sits lowest so it reads as underneath the name while everything stays above the plate.
+    local below, belowIsAnchor = anchor, true
+
+    if guildName then
+        SetFriendlyLineFont(guildText, fontPath, math.max(8, fontSize * FRIENDLY_GUILD_FONT_SCALE), fontFlags)
+        PlaceFriendlyLine(guildText, below, belowIsAnchor, justify, offsetX, offsetY, spacing)
+        guildText:SetTextColor(r, g, b, a)
+        guildText:SetFormattedText("<%s>", guildName)
+        guildText:Show()
+        below, belowIsAnchor = guildText, false
     else
-        text:SetPoint("BOTTOM", anchor, "TOP", offsetX, offsetY)
+        guildText:Hide()
     end
 
-    local r, g, b, a = self:GetFriendlyNameColor(unit)
+    SetFriendlyLineFont(text, fontPath, fontSize, fontFlags)
+    PlaceFriendlyLine(text, below, belowIsAnchor, justify, offsetX, offsetY, spacing)
     text:SetTextColor(r, g, b, a)
     text:SetText(bottomText)
-
     if (text:GetStringWidth() or 0) <= 0 then
         text:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", fontSize, fontFlags)
         text:SetText(bottomText)
     end
-
     text:Show()
-    
-    if topText and titleText then
-        if not titleText:SetFont(fontPath, fontSize, fontFlags) then
-            titleText:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", fontSize, fontFlags)
-        end
-        titleText:SetWidth(0)
-        titleText:SetJustifyH(justify)
-        titleText:ClearAllPoints()
-        
-        local titleOffsetY = 2
-        if justify == "LEFT" then
-            titleText:SetPoint("BOTTOMLEFT", text, "TOPLEFT", 0, titleOffsetY)
-        elseif justify == "RIGHT" then
-            titleText:SetPoint("BOTTOMRIGHT", text, "TOPRIGHT", 0, titleOffsetY)
-        else
-            titleText:SetPoint("BOTTOM", text, "TOP", 0, titleOffsetY)
-        end
-        
+
+    if topText then
+        SetFriendlyLineFont(titleText, fontPath, fontSize, fontFlags)
+        PlaceFriendlyLine(titleText, text, false, justify, offsetX, offsetY, spacing)
         titleText:SetTextColor(r, g, b, a)
         titleText:SetText(topText)
-        
         if (titleText:GetStringWidth() or 0) <= 0 then
             titleText:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", fontSize, fontFlags)
             titleText:SetText(topText)
         end
-        
         titleText:Show()
-    elseif titleText then
-        titleText:Hide()
-    end
-end
-
-function addon:ApplyScaleToFrame(frame)
-    if not frame then
-        return
-    end
-
-    local unit = ResolveNameplateUnit(frame)
-    if not unit then
-        return
-    end
-
-    local scale = self.db.nameplateSimplifiedScale or 1.0
-    if InCombatLockdown() then
-        return
-    end
-
-    if IsFriendlyPlayerUnit(unit) then
-        frame:SetScale(scale)
     else
-        frame:SetScale(1)
+        titleText:Hide()
     end
 end
 
@@ -337,7 +374,6 @@ function addon:RefreshSingleNameplate(unitOrFrame)
         return
     end
 
-    self:ApplyScaleToFrame(frame)
     self:ApplyFriendlyNameToFrame(frame)
 end
 
@@ -351,6 +387,7 @@ function addon:EnsureNameplateHooks()
     eventFrame:RegisterEvent("UNIT_NAME_UPDATE")
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
+    eventFrame:RegisterEvent("PLAYER_GUILD_UPDATE")
     eventFrame:RegisterEvent("CVAR_UPDATE")
     eventFrame:SetScript("OnEvent", function(_, event, arg1)
         if event == "NAME_PLATE_UNIT_ADDED" or event == "UNIT_NAME_UPDATE" then
@@ -358,13 +395,12 @@ function addon:EnsureNameplateHooks()
             return
         end
 
-        if event == "PLAYER_TARGET_CHANGED" then
+        if event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_GUILD_UPDATE" then
             addon:UpdateFriendlyNameplates()
             return
         end
 
         if event == "PLAYER_ENTERING_WORLD" then
-            addon:UpdateNameplateScale()
             addon:UpdateFriendlyNameplates()
             return
         end
@@ -839,6 +875,7 @@ function addon:ApplyTweaks()
     self:SetCooldownAtMouseEnabled(self.db.cooldownAtMouseEnabled)
     self:InitChatTweaks()
     self:UpdateOverrideActionBar()
+    self:UpdateMicroMenuArt()
     self:SetPartyFrameCenteringEnabled(self.db.centerPartyFramesEnabled)
     self:SetRaidFrameCenteringEnabled(self.db.centerRaidFramesEnabled)
     if self:IsFeatureSupported("armorSetHighlight") then
@@ -846,7 +883,6 @@ function addon:ApplyTweaks()
     end
 
     -- Nameplate Tweaks
-    self:UpdateNameplateScale()
     self:UpdateFriendlyNameplates()
 
     if self.db.nameplateUseClassColorForFriendlyPlayerUnitNames ~= nil then
@@ -858,22 +894,6 @@ function addon:ApplyTweaks()
     end
 end
 
-function addon:UpdateNameplateScale()
-    self:EnsureNameplateHooks()
-
-    if not self.db.nameplateSimplifiedScale then
-        return
-    end
-
-    if not C_NamePlate or not C_NamePlate.GetNamePlates then
-        return
-    end
-
-    for _, frame in pairs(C_NamePlate.GetNamePlates()) do
-        self:ApplyScaleToFrame(frame)
-    end
-end
-
 function addon:UpdateOverrideActionBar()
     if InCombatLockdown() then return end
     if not OverrideActionBar then return end
@@ -881,6 +901,18 @@ function addon:UpdateOverrideActionBar()
     local offset = self.db.overrideActionBarYOffset or 0
     OverrideActionBar:ClearAllPoints()
     OverrideActionBar:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, offset)
+end
+
+-- Faded rather than hidden, so it stays gone if Blizzard re-shows it
+function addon:UpdateMicroMenuArt()
+    if not self:IsFeatureSupported("microMenuArt") then
+        return
+    end
+
+    MicroMenu.BackgroundArt:SetAlpha(self.db.hideMicroMenuBackgroundArt and 0 or 1)
+    if MicroMenu.BorderArt then
+        MicroMenu.BorderArt:SetAlpha(self.db.hideMicroMenuBorderArt and 0 or 1)
+    end
 end
 
 -- ============================================================

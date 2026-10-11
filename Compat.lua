@@ -12,6 +12,7 @@ local features = {
     -- Forever exposes C_AssistedCombat but the highlight doesn't work there, so no API test
     armorSetHighlight = function() return addon.isRetail end,
     cooldownAtMouse = function() return C_Spell ~= nil and C_Spell.GetSpellCooldown ~= nil end,
+    microMenuArt = function() return MicroMenu ~= nil and MicroMenu.BackgroundArt ~= nil end,
     chatButtonSide = function() return FCF_SetButtonSide ~= nil and FCF_UpdateButtonSide ~= nil end,
 }
 

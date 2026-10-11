@@ -93,7 +93,7 @@ function addon:CreateSettingsPanel()
     local tabChat = CreateSettingsPage("chat", "Chat Tweaks", "Customize chat behavior and chat frame controls.")
     local tabSpeed = CreateSettingsPage("speed", "Speed Tweaks", "Configure movement speed display options.")
     local tabCooldowns = CreateSettingsPage("cooldowns", "Cooldown Tweaks", "Configure cooldown display options.")
-    local tabNameplates = CreateSettingsPage("nameplates", "Nameplate Tweaks", "Configure friendly nameplate appearance and scaling.")
+    local tabNameplates = CreateSettingsPage("nameplates", "Nameplate Tweaks", "Configure friendly nameplate appearance.")
     local tabBackground = CreateSettingsPage("background", "Background", "Background panel and visual backdrop options.")
 
     -- Helper to add sections to a tab
@@ -245,6 +245,27 @@ function addon:CreateSettingsPanel()
         if addon.SetArmorSetActionHighlightEnabled then
             addon:SetArmorSetActionHighlightEnabled(addon.db.armorSetActionHighlightEnabled)
         end
+    end)
+
+    -- Micro Menu
+    local microMenuGroup, microMenuTitle = CreateSection(tabGeneral, "Micro Menu", "Adjust the appearance of the micro menu bar.", 110, "microMenuArt")
+
+    local microMenuArtCheck = CreateFrame("CheckButton", nil, microMenuGroup, "InterfaceOptionsCheckButtonTemplate")
+    microMenuArtCheck:SetPoint("TOPLEFT", microMenuTitle, "BOTTOMLEFT", 0, -10)
+    microMenuArtCheck.Text:SetText("Hide micro menu background art")
+    microMenuArtCheck:SetChecked(addon.db.hideMicroMenuBackgroundArt)
+    microMenuArtCheck:SetScript("OnClick", function(self)
+        addon.db.hideMicroMenuBackgroundArt = self:GetChecked()
+        addon:UpdateMicroMenuArt()
+    end)
+
+    local microMenuBorderCheck = CreateFrame("CheckButton", nil, microMenuGroup, "InterfaceOptionsCheckButtonTemplate")
+    microMenuBorderCheck:SetPoint("TOPLEFT", microMenuArtCheck, "BOTTOMLEFT", 0, -6)
+    microMenuBorderCheck.Text:SetText("Hide micro menu border art")
+    microMenuBorderCheck:SetChecked(addon.db.hideMicroMenuBorderArt)
+    microMenuBorderCheck:SetScript("OnClick", function(self)
+        addon.db.hideMicroMenuBorderArt = self:GetChecked()
+        addon:UpdateMicroMenuArt()
     end)
 
     -- ====================
@@ -883,61 +904,12 @@ function addon:CreateSettingsPanel()
     -- ====================
     -- NAMEPLATE TAB CONTENT
     -- ====================
-    local npPanel, npTitle = CreateSection(tabNameplates, "Nameplate Settings", "Configure nameplate behavior and appearance.", 220)
+    local npFriendlyPanel, npFriendlyTitle = CreateSection(tabNameplates, "Friendly Simplified Names", "Render readable names above simplified friendly player nameplates.", 560)
 
-    -- Simplified Nameplate Scale Slider
-    local npScaleSlider = CreateFrame("Slider", nil, npPanel, "OptionsSliderTemplate")
-    npScaleSlider:SetPoint("TOPLEFT", npTitle, "BOTTOMLEFT", 0, -28)
-    npScaleSlider:SetMinMaxValues(0.15, 1.0)
-    npScaleSlider:SetValue(addon.db.nameplateSimplifiedScale or 1.0)
-    npScaleSlider:SetValueStep(0.05)
-    npScaleSlider:SetObeyStepOnDrag(true)
-    npScaleSlider:SetWidth(200)
-    npScaleSlider.Low:SetText("15%")
-    npScaleSlider.High:SetText("100%")
-    npScaleSlider.Text:SetText(string.format("Simplified Scale: %.0f%%", (addon.db.nameplateSimplifiedScale or 1.0) * 100))
-    npScaleSlider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value * 20 + 0.5) / 20 -- Rounding to nearest 0.05
-        self.Text:SetText(string.format("Simplified Scale: %.0f%%", value * 100))
-        addon.db.nameplateSimplifiedScale = value
-        
-        -- Apply the scale using our addon logic
-        if addon.UpdateNameplateScale then
-             addon:UpdateNameplateScale()
-        end
-    end)
-
-    -- Friendly Name Class Color Checkbox
-    local npClassColor = CreateFrame("CheckButton", nil, npPanel, "InterfaceOptionsCheckButtonTemplate")
-    npClassColor:SetPoint("TOPLEFT", npScaleSlider, "BOTTOMLEFT", 0, -28)
-    npClassColor.Text:SetText("Use Class Colors on Friendly Names")
-    npClassColor:SetChecked(addon.db.nameplateUseClassColorForFriendlyPlayerUnitNames)
-    npClassColor:SetScript("OnClick", function(self)
-        local isChecked = self:GetChecked()
-        addon.db.nameplateUseClassColorForFriendlyPlayerUnitNames = isChecked
-        if addon.SetFriendlyClassColorCVar then
-            addon:SetFriendlyClassColorCVar(isChecked)
-        else
-            local val = isChecked and "1" or "0"
-            if C_CVar and C_CVar.SetCVar then
-                pcall(function() C_CVar.SetCVar("nameplateUseClassColorForFriendlyPlayerUnitNames", val) end)
-            elseif SetCVar then
-                pcall(function() SetCVar("nameplateUseClassColorForFriendlyPlayerUnitNames", val) end)
-            end
-            if ConsoleExec then
-                ConsoleExec("nameplateUseClassColorForFriendlyPlayerUnitNames " .. val)
-            end
-        end
-        if addon.UpdateFriendlyNameplates then
-            addon:UpdateFriendlyNameplates()
-        end
-    end)
-
-    local npFriendlyPanel, npFriendlyTitle = CreateSection(tabNameplates, "Friendly Simplified Names", "Render readable names above simplified friendly player nameplates.", 470)
-    local npFriendlyLeftInset = 10
-
+    -- Every control in this section shares the title's left edge. Dropdowns are pulled
+    -- 16px left because the template pads its visible box by that much.
     local npFriendlyEnabled = CreateFrame("CheckButton", nil, npFriendlyPanel, "InterfaceOptionsCheckButtonTemplate")
-    npFriendlyEnabled:SetPoint("TOPLEFT", npFriendlyTitle, "BOTTOMLEFT", npFriendlyLeftInset, -12)
+    npFriendlyEnabled:SetPoint("TOPLEFT", npFriendlyTitle, "BOTTOMLEFT", 0, -12)
     npFriendlyEnabled.Text:SetText("Enable Friendly Name Rendering")
     npFriendlyEnabled:SetChecked(addon.db.nameplateFriendlyNamesEnabled ~= false)
     npFriendlyEnabled:SetScript("OnClick", function(self)
@@ -954,13 +926,45 @@ function addon:CreateSettingsPanel()
         if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
     end)
 
-    local fontLabel = npFriendlyPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    fontLabel:SetPoint("TOPLEFT", npFriendlyPanel, "TOPLEFT", npFriendlyLeftInset, -96)
-    fontLabel:SetText("Font")
+    local npFriendlyShowGuild = CreateFrame("CheckButton", nil, npFriendlyPanel, "InterfaceOptionsCheckButtonTemplate")
+    npFriendlyShowGuild:SetPoint("TOPLEFT", npFriendlyShowTitle, "BOTTOMLEFT", 0, -4)
+    npFriendlyShowGuild.Text:SetText("Show Guild Name")
+    npFriendlyShowGuild:SetChecked(addon.db.nameplateFriendlyNamesShowGuild == true)
+    npFriendlyShowGuild:SetScript("OnClick", function(self)
+        addon.db.nameplateFriendlyNamesShowGuild = self:GetChecked()
+        addon:UpdateFriendlyNameplates()
+    end)
 
-    local fontDropdown = CreateFrame("Frame", "GUIT_FriendlyNameFontDropdown", npFriendlyPanel, "UIDropDownMenuTemplate")
-    fontDropdown:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", -8, -2)
-    UIDropDownMenu_SetWidth(fontDropdown, 210)
+    local npClassColor = CreateFrame("CheckButton", nil, npFriendlyPanel, "InterfaceOptionsCheckButtonTemplate")
+    npClassColor:SetPoint("TOPLEFT", npFriendlyShowGuild, "BOTTOMLEFT", 0, -4)
+    npClassColor.Text:SetText("Use Class Colors on Friendly Names")
+    npClassColor:SetChecked(addon.db.nameplateUseClassColorForFriendlyPlayerUnitNames)
+    npClassColor:SetScript("OnClick", function(self)
+        addon.db.nameplateUseClassColorForFriendlyPlayerUnitNames = self:GetChecked()
+        addon:SetFriendlyClassColorCVar(self:GetChecked())
+        addon:UpdateFriendlyNameplates()
+    end)
+
+    local npFriendlyScale = CreateFrame("Slider", nil, npFriendlyPanel, "OptionsSliderTemplate")
+    npFriendlyScale:SetPoint("TOPLEFT", npClassColor, "BOTTOMLEFT", 0, -28)
+    npFriendlyScale:SetWidth(220)
+    npFriendlyScale:SetMinMaxValues(0.5, 3.0)
+    npFriendlyScale:SetValueStep(0.05)
+    npFriendlyScale:SetObeyStepOnDrag(true)
+    npFriendlyScale.Low:SetText("50%")
+    npFriendlyScale.High:SetText("300%")
+    npFriendlyScale:SetValue(addon.db.nameplateFriendlyScale or 1.0)
+    npFriendlyScale.Text:SetText(string.format("Friendly Nameplate Scale: %.0f%%", (addon.db.nameplateFriendlyScale or 1.0) * 100))
+    npFriendlyScale:SetScript("OnValueChanged", function(self, value)
+        value = math.floor(value * 20 + 0.5) / 20
+        self.Text:SetText(string.format("Friendly Nameplate Scale: %.0f%%", value * 100))
+        addon.db.nameplateFriendlyScale = value
+        addon:UpdateFriendlyNameplates()
+    end)
+
+    local fontLabel = npFriendlyPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    fontLabel:SetPoint("TOPLEFT", npFriendlyScale, "BOTTOMLEFT", 0, -24)
+    fontLabel:SetText("Font")
 
     local function BuildFriendlyFontList()
         local fontList = {
@@ -1107,84 +1111,101 @@ function addon:CreateSettingsPanel()
         return "Custom/Unknown"
     end
 
-    UIDropDownMenu_Initialize(fontDropdown, function(self, level)
-        local selected = addon.db.nameplateFriendlyNameFont or "Fonts\\FRIZQT__.TTF"
-        local _, grouped, groupOrder = BuildFriendlyFontList()
-        local menuList = UIDROPDOWNMENU_MENU_VALUE
-
-        if level == 1 then
-            for _, group in ipairs(groupOrder) do
-                local fontsInGroup = grouped[group] or {}
-                if #fontsInGroup > 0 then
-                    local info = UIDropDownMenu_CreateInfo()
-                    info.text = group
-                    info.hasArrow = true
-                    info.notCheckable = true
-                    info.value = { kind = "group", group = group }
-                    UIDropDownMenu_AddButton(info, level)
-                end
+    -- Typeface dropdown whose entries are each drawn in their own font. getPath returns the
+    -- chosen font file (nil shows "Default"); setPath stores a new one.
+    local previewFonts = {}
+    local previewFontCount = 0
+    local function GetPreviewFont(path)
+        local font = previewFonts[path]
+        if font == nil then
+            previewFontCount = previewFontCount + 1
+            font = CreateFont("GUIT_FontPreview" .. previewFontCount)
+            -- Only an explicit false is a failure; SetFont returns nothing on success here
+            if font:SetFont(path, 14, "") == false then
+                font = false -- font file missing; fall back to the default menu font
             end
-            return
+            previewFonts[path] = font
+        end
+        return font or nil
+    end
+
+    local function CreateFontDropdown(parent, globalName, getPath, setPath)
+        local dropdown = CreateFrame("Frame", globalName, parent, "UIDropDownMenuTemplate")
+        UIDropDownMenu_SetWidth(dropdown, 210)
+
+        function dropdown:Refresh()
+            local path = getPath()
+            UIDropDownMenu_SetSelectedValue(dropdown, path)
+            UIDropDownMenu_SetText(dropdown, path and GetFriendlyFontDisplayName(path) or "Default")
         end
 
-        if level == 2 and type(menuList) == "table" and menuList.kind == "group" then
-            local group = menuList.group
-            local fontsInGroup = grouped[group] or {}
-            if #fontsInGroup > 24 then
-                local idx = 1
-                while idx <= #fontsInGroup do
-                    local finish = math.min(idx + 23, #fontsInGroup)
-                    local info = UIDropDownMenu_CreateInfo()
-                    info.text = string.format("%d-%d", idx, finish)
-                    info.hasArrow = true
-                    info.notCheckable = true
-                    info.value = { kind = "page", group = group, startIndex = idx, endIndex = finish }
-                    UIDropDownMenu_AddButton(info, level)
-                    idx = finish + 1
-                end
-            else
-                for _, item in ipairs(fontsInGroup) do
-                    local info = UIDropDownMenu_CreateInfo()
-                    info.text = item.name
-                    info.value = item.path
-                    info.func = function(btn)
-                        addon.db.nameplateFriendlyNameFont = btn.value
-                        UIDropDownMenu_SetSelectedValue(fontDropdown, btn.value)
-                        UIDropDownMenu_SetText(fontDropdown, GetFriendlyFontDisplayName(btn.value))
-                        if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
+        local function AddFontButton(item, level)
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = item.name
+            info.value = item.path
+            info.fontObject = GetPreviewFont(item.path)
+            info.checked = (getPath() == item.path)
+            info.func = function(btn)
+                setPath(btn.value)
+                dropdown:Refresh()
+                CloseDropDownMenus()
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+
+        UIDropDownMenu_Initialize(dropdown, function(self, level)
+            local _, grouped, groupOrder = BuildFriendlyFontList()
+            local menuList = UIDROPDOWNMENU_MENU_VALUE
+
+            if level == 1 then
+                for _, group in ipairs(groupOrder) do
+                    if #(grouped[group] or {}) > 0 then
+                        local info = UIDropDownMenu_CreateInfo()
+                        info.text = group
+                        info.hasArrow = true
+                        info.notCheckable = true
+                        info.value = { kind = "group", group = group }
+                        UIDropDownMenu_AddButton(info, level)
                     end
-                    info.checked = (selected == item.path)
-                    UIDropDownMenu_AddButton(info, level)
                 end
-            end
-            return
-        end
-
-        if level == 3 and type(menuList) == "table" and menuList.kind == "page" then
-            local group = menuList.group
-            local fontsInGroup = grouped[group] or {}
-            for idx = menuList.startIndex, menuList.endIndex do
-                local item = fontsInGroup[idx]
-                if item then
-                    local info = UIDropDownMenu_CreateInfo()
-                    info.text = item.name
-                    info.value = item.path
-                    info.func = function(btn)
-                        addon.db.nameplateFriendlyNameFont = btn.value
-                        UIDropDownMenu_SetSelectedValue(fontDropdown, btn.value)
-                        UIDropDownMenu_SetText(fontDropdown, GetFriendlyFontDisplayName(btn.value))
-                        if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
+            elseif level == 2 and type(menuList) == "table" and menuList.kind == "group" then
+                local fontsInGroup = grouped[menuList.group] or {}
+                if #fontsInGroup > 24 then
+                    for idx = 1, #fontsInGroup, 24 do
+                        local finish = math.min(idx + 23, #fontsInGroup)
+                        local info = UIDropDownMenu_CreateInfo()
+                        info.text = string.format("%d-%d", idx, finish)
+                        info.hasArrow = true
+                        info.notCheckable = true
+                        info.value = { kind = "page", group = menuList.group, startIndex = idx, endIndex = finish }
+                        UIDropDownMenu_AddButton(info, level)
                     end
-                    info.checked = (selected == item.path)
-                    UIDropDownMenu_AddButton(info, level)
+                else
+                    for _, item in ipairs(fontsInGroup) do
+                        AddFontButton(item, level)
+                    end
+                end
+            elseif level == 3 and type(menuList) == "table" and menuList.kind == "page" then
+                local fontsInGroup = grouped[menuList.group] or {}
+                for idx = menuList.startIndex, menuList.endIndex do
+                    if fontsInGroup[idx] then
+                        AddFontButton(fontsInGroup[idx], level)
+                    end
                 end
             end
-        end
-    end)
+        end)
 
-    local selectedFriendlyFont = addon.db.nameplateFriendlyNameFont or "Fonts\\FRIZQT__.TTF"
-    UIDropDownMenu_SetSelectedValue(fontDropdown, selectedFriendlyFont)
-    UIDropDownMenu_SetText(fontDropdown, GetFriendlyFontDisplayName(selectedFriendlyFont))
+        dropdown:Refresh()
+        return dropdown
+    end
+
+    local fontDropdown = CreateFontDropdown(npFriendlyPanel, "GUIT_FriendlyNameFontDropdown",
+        function() return addon.db.nameplateFriendlyNameFont or "Fonts\\FRIZQT__.TTF" end,
+        function(path)
+            addon.db.nameplateFriendlyNameFont = path
+            addon:UpdateFriendlyNameplates()
+        end)
+    fontDropdown:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", -16, -2)
 
     local function CreateNameColorSwatch(parent, relativeTo)
         local lbl = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
@@ -1254,11 +1275,11 @@ function addon:CreateSettingsPanel()
     local _ = CreateNameColorSwatch(npFriendlyPanel, fontDropdown)
 
     local outlineLabel = npFriendlyPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    outlineLabel:SetPoint("TOPLEFT", fontDropdown, "BOTTOMLEFT", 0, -18)
+    outlineLabel:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -46)
     outlineLabel:SetText("Outline Type")
 
     local outlineDropdown = CreateFrame("Frame", "GUIT_FriendlyNameOutlineDropdown", npFriendlyPanel, "UIDropDownMenuTemplate")
-    outlineDropdown:SetPoint("TOPLEFT", outlineLabel, "BOTTOMLEFT", -8, -2)
+    outlineDropdown:SetPoint("TOPLEFT", outlineLabel, "BOTTOMLEFT", -16, -2)
     UIDropDownMenu_SetWidth(outlineDropdown, 160)
 
     UIDropDownMenu_Initialize(outlineDropdown, function(self, level)
@@ -1290,7 +1311,7 @@ function addon:CreateSettingsPanel()
     UIDropDownMenu_SetText(outlineDropdown, outlineText)
 
     local sizeSlider = CreateFrame("Slider", nil, npFriendlyPanel, "OptionsSliderTemplate")
-    sizeSlider:SetPoint("TOPLEFT", npFriendlyPanel, "TOPLEFT", npFriendlyLeftInset + 8, -232)
+    sizeSlider:SetPoint("TOPLEFT", outlineLabel, "BOTTOMLEFT", 0, -62)
     sizeSlider:SetMinMaxValues(8, 64)
     sizeSlider:SetValueStep(1)
     sizeSlider:SetObeyStepOnDrag(true)
@@ -1345,7 +1366,7 @@ function addon:CreateSettingsPanel()
     justifyLabel:SetText("Justification")
 
     local justifyDropdown = CreateFrame("Frame", "GUIT_FriendlyNameJustifyDropdown", npFriendlyPanel, "UIDropDownMenuTemplate")
-    justifyDropdown:SetPoint("TOPLEFT", justifyLabel, "BOTTOMLEFT", -8, -2)
+    justifyDropdown:SetPoint("TOPLEFT", justifyLabel, "BOTTOMLEFT", -16, -2)
     UIDropDownMenu_SetWidth(justifyDropdown, 120)
 
     UIDropDownMenu_Initialize(justifyDropdown, function(self, level)
@@ -1379,7 +1400,7 @@ function addon:CreateSettingsPanel()
     -- ====================
     -- COOLDOWN TAB CONTENT
     -- ====================
-    -- Lives after the nameplate section to reuse its font list; scoped to stay under the local limit
+    -- Lives after the nameplate section to use the font dropdown; scoped to stay under the local limit
     do
         local cdMouseGroup, cdMouseTitle = CreateSection(tabCooldowns, "Cooldown Timer at Mouse", "Shows the time remaining beside the cursor when you press a spell that is still on cooldown.", 380, "cooldownAtMouse")
 
@@ -1458,87 +1479,13 @@ function addon:CreateSettingsPanel()
         cdMouseFontLabel:SetPoint("TOPLEFT", cdMouseSizeSlider, "BOTTOMLEFT", 0, -24)
         cdMouseFontLabel:SetText("Typeface")
 
-        local cdMouseFontDropdown = CreateFrame("Frame", "GUIT_CooldownAtMouseFontDropdown", cdMouseGroup, "UIDropDownMenuTemplate")
-        cdMouseFontDropdown:SetPoint("TOPLEFT", cdMouseFontLabel, "BOTTOMLEFT", -16, -2)
-        UIDropDownMenu_SetWidth(cdMouseFontDropdown, 210)
-
-        -- One Font object per typeface so each menu entry is drawn in its own font
-        local cdMousePreviewFonts = {}
-        local cdMousePreviewFontCount = 0
-        local function GetPreviewFont(path)
-            local font = cdMousePreviewFonts[path]
-            if font == nil then
-                cdMousePreviewFontCount = cdMousePreviewFontCount + 1
-                font = CreateFont("GUIT_CooldownFontPreview" .. cdMousePreviewFontCount)
-                -- Only an explicit false is a failure; SetFont returns nothing on success here
-                if font:SetFont(path, 14, "") == false then
-                    font = false -- font file missing; fall back to the default menu font
-                end
-                cdMousePreviewFonts[path] = font
-            end
-            return font or nil
-        end
-
-        local function AddCooldownFontButton(item, level)
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = item.name
-            info.value = item.path
-            info.fontObject = GetPreviewFont(item.path)
-            info.checked = ((addon.db.cooldownAtMouseFont or "Fonts\\FRIZQT__.TTF") == item.path)
-            info.func = function(btn)
-                addon.db.cooldownAtMouseFont = btn.value
-                UIDropDownMenu_SetSelectedValue(cdMouseFontDropdown, btn.value)
-                UIDropDownMenu_SetText(cdMouseFontDropdown, GetFriendlyFontDisplayName(btn.value))
+        local cdMouseFontDropdown = CreateFontDropdown(cdMouseGroup, "GUIT_CooldownAtMouseFontDropdown",
+            function() return addon.db.cooldownAtMouseFont or "Fonts\\FRIZQT__.TTF" end,
+            function(path)
+                addon.db.cooldownAtMouseFont = path
                 addon:UpdateCooldownAtMouseFont()
-                CloseDropDownMenus()
-            end
-            UIDropDownMenu_AddButton(info, level)
-        end
-
-        UIDropDownMenu_Initialize(cdMouseFontDropdown, function(self, level)
-            local _, grouped, groupOrder = BuildFriendlyFontList()
-            local menuList = UIDROPDOWNMENU_MENU_VALUE
-
-            if level == 1 then
-                for _, group in ipairs(groupOrder) do
-                    if #(grouped[group] or {}) > 0 then
-                        local info = UIDropDownMenu_CreateInfo()
-                        info.text = group
-                        info.hasArrow = true
-                        info.notCheckable = true
-                        info.value = { kind = "group", group = group }
-                        UIDropDownMenu_AddButton(info, level)
-                    end
-                end
-            elseif level == 2 and type(menuList) == "table" and menuList.kind == "group" then
-                local fontsInGroup = grouped[menuList.group] or {}
-                if #fontsInGroup > 24 then
-                    for idx = 1, #fontsInGroup, 24 do
-                        local finish = math.min(idx + 23, #fontsInGroup)
-                        local info = UIDropDownMenu_CreateInfo()
-                        info.text = string.format("%d-%d", idx, finish)
-                        info.hasArrow = true
-                        info.notCheckable = true
-                        info.value = { kind = "page", group = menuList.group, startIndex = idx, endIndex = finish }
-                        UIDropDownMenu_AddButton(info, level)
-                    end
-                else
-                    for _, item in ipairs(fontsInGroup) do
-                        AddCooldownFontButton(item, level)
-                    end
-                end
-            elseif level == 3 and type(menuList) == "table" and menuList.kind == "page" then
-                local fontsInGroup = grouped[menuList.group] or {}
-                for idx = menuList.startIndex, menuList.endIndex do
-                    if fontsInGroup[idx] then
-                        AddCooldownFontButton(fontsInGroup[idx], level)
-                    end
-                end
-            end
-        end)
-
-        UIDropDownMenu_SetSelectedValue(cdMouseFontDropdown, addon.db.cooldownAtMouseFont or "Fonts\\FRIZQT__.TTF")
-        UIDropDownMenu_SetText(cdMouseFontDropdown, GetFriendlyFontDisplayName(addon.db.cooldownAtMouseFont or "Fonts\\FRIZQT__.TTF"))
+            end)
+        cdMouseFontDropdown:SetPoint("TOPLEFT", cdMouseFontLabel, "BOTTOMLEFT", -16, -2)
 
         local function UpdateCooldownControls()
             local enabled = addon.db.cooldownAtMouseEnabled
@@ -1559,6 +1506,87 @@ function addon:CreateSettingsPanel()
             addon:SetCooldownAtMouseEnabled(addon.db.cooldownAtMouseEnabled)
             UpdateCooldownControls()
         end)
+    end
+
+    -- ====================
+    -- CHAT TEXT FONT (Chat tab; down here to use the font dropdown)
+    -- ====================
+    do
+        local chatFontGroup, chatFontTitle = CreateSection(tabChat, "Chat Text Font", "Change the typeface and size of the text in each chat window.", 270)
+        local selectedWindow = 1
+        local refreshing = false
+
+        local windowLabel = chatFontGroup:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        windowLabel:SetPoint("TOPLEFT", chatFontTitle, "BOTTOMLEFT", 0, -14)
+        windowLabel:SetText("Chat Window")
+
+        local windowDropdown = CreateFrame("Frame", "GUIT_ChatFontWindowDropdown", chatFontGroup, "UIDropDownMenuTemplate")
+        windowDropdown:SetPoint("TOPLEFT", windowLabel, "BOTTOMLEFT", -16, -2)
+        UIDropDownMenu_SetWidth(windowDropdown, 210)
+
+        local fontLabel = chatFontGroup:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        fontLabel:SetPoint("TOPLEFT", windowLabel, "BOTTOMLEFT", 0, -46)
+        fontLabel:SetText("Typeface")
+
+        local fontDropdown = CreateFontDropdown(chatFontGroup, "GUIT_ChatFontDropdown",
+            function() return addon:GetChatFontOverride(selectedWindow).font end,
+            function(path) addon:SetChatFontOverride(selectedWindow, "font", path) end)
+        fontDropdown:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", -16, -2)
+
+        local sizeSlider = CreateFrame("Slider", nil, chatFontGroup, "OptionsSliderTemplate")
+        sizeSlider:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -62)
+        sizeSlider:SetWidth(300)
+        sizeSlider:SetMinMaxValues(8, 32)
+        sizeSlider:SetValueStep(1)
+        sizeSlider:SetObeyStepOnDrag(true)
+        sizeSlider.Low:SetText("8")
+        sizeSlider.High:SetText("32")
+        sizeSlider:SetScript("OnValueChanged", function(self, value)
+            value = math.floor(value + 0.5)
+            self.Text:SetText(string.format("Font Size: %d", value))
+            if not refreshing then
+                addon:SetChatFontOverride(selectedWindow, "size", value)
+            end
+        end)
+
+        local resetButton = CreateFrame("Button", nil, chatFontGroup, "UIPanelButtonTemplate")
+        resetButton:SetPoint("TOPLEFT", sizeSlider, "BOTTOMLEFT", 0, -26)
+        resetButton:SetSize(160, 22)
+        resetButton:SetText("Reset This Window")
+
+        -- Shows the selected window's current font and size
+        local function RefreshChatFontControls()
+            UIDropDownMenu_SetSelectedValue(windowDropdown, selectedWindow)
+            UIDropDownMenu_SetText(windowDropdown, addon:GetChatWindowName(selectedWindow))
+            fontDropdown:Refresh()
+
+            refreshing = true
+            sizeSlider:SetValue(addon:GetChatFontSize(selectedWindow))
+            refreshing = false
+        end
+
+        -- Built each time it opens, so new and renamed windows are listed
+        UIDropDownMenu_Initialize(windowDropdown, function()
+            for _, id in ipairs(addon:GetChatWindowIDs()) do
+                local info = UIDropDownMenu_CreateInfo()
+                info.text = addon:GetChatWindowName(id)
+                info.value = id
+                info.checked = (id == selectedWindow)
+                info.func = function(btn)
+                    selectedWindow = btn.value
+                    RefreshChatFontControls()
+                end
+                UIDropDownMenu_AddButton(info)
+            end
+        end)
+
+        resetButton:SetScript("OnClick", function()
+            addon:ResetChatFont(selectedWindow)
+            RefreshChatFontControls()
+        end)
+
+        chatFontGroup:SetScript("OnShow", RefreshChatFontControls)
+        RefreshChatFontControls()
     end
 
     addon.settingsPanel = panel

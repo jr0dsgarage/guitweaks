@@ -242,6 +242,7 @@ function addon:UpdateChatButtonBackgrounds()
     end
 
     addon:UpdateChatButtonSide()
+    addon:UpdateChatFonts()
     addon:UpdateChatTabs()
 end
 
@@ -283,6 +284,98 @@ function addon:UpdateChatButtonSide()
             end
         end
     end
+end
+
+-- Chat Text Font
+-- Per-window typeface and size overrides, stored in db.chatFonts[windowID] = { font, size }.
+local chatFontHooked = false
+local chatFontOriginals = {} -- [windowID] = font file the window had before we touched it
+
+local function ApplyChatFont(id)
+    local chatFrame = _G["ChatFrame" .. id]
+    if not chatFrame then
+        return
+    end
+
+    local file, size, flags = chatFrame:GetFont()
+    chatFontOriginals[id] = chatFontOriginals[id] or file
+
+    local override = addon.db.chatFonts[id]
+    if not override then
+        return
+    end
+
+    -- Only an explicit false is a failure; SetFont returns nothing on success here
+    if chatFrame:SetFont(override.font or file, override.size or size, flags) == false then
+        chatFrame:SetFont(chatFontOriginals[id], override.size or size, flags)
+    end
+end
+
+function addon:UpdateChatFonts()
+    if not chatFontHooked then
+        chatFontHooked = true
+        -- Blizzard re-applies its own font when a window is set up or its size is changed
+        hooksecurefunc("FloatingChatFrame_Update", function(id)
+            ApplyChatFont(id)
+        end)
+        hooksecurefunc("FCF_SetChatWindowFontSize", function(_, chatFrame)
+            local id = (chatFrame or FCF_GetCurrentChatFrame()):GetID()
+            ApplyChatFont(id)
+        end)
+    end
+
+    for i = 1, NUM_CHAT_WINDOWS do
+        ApplyChatFont(i)
+    end
+end
+
+-- The windows currently in use (shown or docked as a tab)
+function addon:GetChatWindowIDs()
+    local ids = {}
+    for i = 1, NUM_CHAT_WINDOWS do
+        local _, _, _, _, _, _, shown, _, docked = GetChatWindowInfo(i)
+        if i == 1 or shown or docked then
+            table.insert(ids, i)
+        end
+    end
+    return ids
+end
+
+function addon:GetChatWindowName(id)
+    local name = GetChatWindowInfo(id)
+    if not name or name == "" then
+        name = "Chat " .. id
+    end
+    return name
+end
+
+function addon:GetChatFontOverride(id)
+    return self.db.chatFonts[id] or {}
+end
+
+function addon:GetChatFontSize(id)
+    local chatFrame = _G["ChatFrame" .. id]
+    local _, size = chatFrame:GetFont()
+    return math.floor((size or 14) + 0.5)
+end
+
+function addon:SetChatFontOverride(id, key, value)
+    self.db.chatFonts[id] = self.db.chatFonts[id] or {}
+    self.db.chatFonts[id][key] = value
+    ApplyChatFont(id)
+end
+
+-- Back to the window's own typeface and the size chosen in Blizzard's chat menu
+function addon:ResetChatFont(id)
+    self.db.chatFonts[id] = nil
+
+    local chatFrame = _G["ChatFrame" .. id]
+    local file, size, flags = chatFrame:GetFont()
+    local _, blizzardSize = GetChatWindowInfo(id)
+    if not blizzardSize or blizzardSize <= 0 then
+        blizzardSize = size
+    end
+    chatFrame:SetFont(chatFontOriginals[id] or file, blizzardSize, flags)
 end
 
 -- Chat Tabs
