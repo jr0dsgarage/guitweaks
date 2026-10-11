@@ -48,6 +48,7 @@ local defaults = {
         hideQuickJoinToastButton = false,
         chatButtonsOnRight = false,
         chatFonts = {},
+        extendDefaultChatPane = false,
         hideChatTabs = false,
         showChatTabsOnHover = false,
         backgroundPanelEnabled = false,

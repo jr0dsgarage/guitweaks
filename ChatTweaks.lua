@@ -243,7 +243,150 @@ function addon:UpdateChatButtonBackgrounds()
 
     addon:UpdateChatButtonSide()
     addon:UpdateChatFonts()
+    addon:UpdateChatPaneExtend()
     addon:UpdateChatTabs()
+end
+
+-- Extend Default Chat Pane
+-- Blizzard leaves a strip under the main chat frame for the chat entry box. Once the
+-- entry box has been moved elsewhere, this stretches the frame down over that strip.
+-- db.chatPaneExtend = { base = height before, extended = height after } records what was
+-- done, so re-applying never stretches it twice and turning it off puts it back exactly.
+local EXTEND_EDIT_BOX_GAP = 2 -- pixels between the chat frame and its entry box
+local extendEventFrame
+local extendPending = false
+
+local function GetExtendAmount(chatFrame)
+    local editBox = chatFrame.editBox or _G[chatFrame:GetName() .. "EditBox"]
+    local height = editBox and editBox:GetHeight() or 0
+    if height <= 0 then
+        height = 32
+    end
+    return height + EXTEND_EDIT_BOX_GAP
+end
+
+-- Changes the frame's height by `amount`, moving its bottom edge and leaving the top where it is.
+local function GrowChatFrameDownward(chatFrame, amount)
+    local point, relativeTo, relativePoint, x, y = chatFrame:GetPoint(1)
+    if point then
+        if point:find("BOTTOM") then
+            y = y - amount
+        elseif not point:find("TOP") then
+            y = y - amount / 2
+        end
+        chatFrame:ClearAllPoints()
+        chatFrame:SetPoint(point, relativeTo, relativePoint, x, y)
+    end
+    chatFrame:SetHeight(chatFrame:GetHeight() + amount)
+end
+
+-- Edit Mode keeps the frame clamped a strip's height above the bottom of the screen (the
+-- strip belongs to the entry box), which shoves an extended frame back up. While extended,
+-- the bottom clamp is relaxed by the same amount so the frame may sit in that strip.
+local blizzardClampInsets -- the insets Blizzard last asked for: { left, right, top, bottom }
+local clampHooked = false
+local clampAdjusting = false
+
+local function ApplyChatPaneClamp(chatFrame)
+    if not blizzardClampInsets then
+        return
+    end
+
+    local left, right, top, bottom = unpack(blizzardClampInsets)
+    local state = addon.db.chatPaneExtend
+    if addon.db.extendDefaultChatPane and state then
+        bottom = bottom + (state.extended - state.base)
+    end
+
+    clampAdjusting = true
+    chatFrame:SetClampRectInsets(left, right, top, bottom)
+    clampAdjusting = false
+end
+
+local function EnsureChatPaneClampHook(chatFrame)
+    if clampHooked or not chatFrame.GetClampRectInsets then
+        return
+    end
+    clampHooked = true
+
+    blizzardClampInsets = { chatFrame:GetClampRectInsets() }
+    hooksecurefunc(chatFrame, "SetClampRectInsets", function(self, left, right, top, bottom)
+        if clampAdjusting then
+            return
+        end
+        blizzardClampInsets = { left or 0, right or 0, top or 0, bottom or 0 }
+        ApplyChatPaneClamp(self)
+    end)
+end
+
+local function IsChatPaneExtended(chatFrame)
+    local state = addon.db.chatPaneExtend
+    return state and math.abs(chatFrame:GetHeight() - state.extended) < 0.5
+end
+
+local function ApplyChatPaneExtend()
+    local chatFrame = ChatFrame1
+    if not chatFrame or not chatFrame:GetHeight() or chatFrame:GetHeight() <= 0 then
+        return
+    end
+
+    EnsureChatPaneClampHook(chatFrame)
+
+    if addon.db.extendDefaultChatPane then
+        if not IsChatPaneExtended(chatFrame) then
+            local base = chatFrame:GetHeight()
+            local amount = GetExtendAmount(chatFrame)
+            addon.db.chatPaneExtend = { base = base, extended = base + amount }
+            ApplyChatPaneClamp(chatFrame) -- before moving, or the move is clamped away
+            GrowChatFrameDownward(chatFrame, amount)
+        else
+            ApplyChatPaneClamp(chatFrame)
+        end
+    elseif addon.db.chatPaneExtend then
+        if IsChatPaneExtended(chatFrame) then
+            local state = addon.db.chatPaneExtend
+            GrowChatFrameDownward(chatFrame, state.base - state.extended)
+        end
+        addon.db.chatPaneExtend = nil
+        ApplyChatPaneClamp(chatFrame)
+    end
+end
+
+-- Blizzard lays the chat frames out again after login and after Edit Mode; wait for it to settle
+local function QueueChatPaneExtend()
+    if extendPending then
+        return
+    end
+    extendPending = true
+    C_Timer.After(0.5, function()
+        extendPending = false
+        ApplyChatPaneExtend()
+    end)
+end
+
+function addon:UpdateChatPaneExtend()
+    if not extendEventFrame then
+        extendEventFrame = CreateFrame("Frame")
+        extendEventFrame:SetScript("OnEvent", QueueChatPaneExtend)
+        for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_CHAT_WINDOWS", "UPDATE_FLOATING_CHAT_WINDOWS", "EDIT_MODE_LAYOUTS_UPDATED" }) do
+            pcall(extendEventFrame.RegisterEvent, extendEventFrame, event)
+        end
+
+        -- If you move or resize the frame yourself while it is extended, Blizzard saves the
+        -- stretched size. Take that as the new extended size so it isn't stretched again.
+        if FCF_SavePositionAndDimensions then
+            hooksecurefunc("FCF_SavePositionAndDimensions", function(chatFrame)
+                local state = addon.db.chatPaneExtend
+                if chatFrame == ChatFrame1 and state and addon.db.extendDefaultChatPane then
+                    local amount = state.extended - state.base
+                    state.extended = chatFrame:GetHeight()
+                    state.base = state.extended - amount
+                end
+            end)
+        end
+    end
+
+    ApplyChatPaneExtend()
 end
 
 -- Chat Button Side

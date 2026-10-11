@@ -364,7 +364,7 @@ function addon:CreateSettingsPanel()
     -- ====================
     -- CHAT TAB
     -- ====================
-    local chatPanel, chatTitle = CreateSection(tabChat, "Chat Entry Box", "Customize the position and appearance of the chat input box.", 230)
+    local chatPanel, chatTitle = CreateSection(tabChat, "Chat Entry Box", "Customize the position and appearance of the chat input box.", 264)
 
     -- Unlock / Drag
     local chatUnlock = CreateFrame("CheckButton", nil, chatPanel, "InterfaceOptionsCheckButtonTemplate")
@@ -436,6 +436,16 @@ function addon:CreateSettingsPanel()
     
     UIDropDownMenu_SetText(anchorDropdown, addon.db.chatEditBoxAnchor or "CENTER")
     UIDropDownMenu_SetWidth(anchorDropdown, 120)
+
+    -- Extend the main chat frame over the strip the entry box used to occupy
+    local extendChatPane = CreateFrame("CheckButton", nil, chatPanel, "InterfaceOptionsCheckButtonTemplate")
+    extendChatPane:SetPoint("TOPLEFT", anchorLabel, "BOTTOMLEFT", -6, -44) -- -6 lines it up with the checkboxes above
+    extendChatPane.Text:SetText("Extend Default Chat Pane (fills the space left for the chat entry box)")
+    extendChatPane:SetChecked(addon.db.extendDefaultChatPane)
+    extendChatPane:SetScript("OnClick", function(self)
+        addon.db.extendDefaultChatPane = self:GetChecked()
+        addon:UpdateChatPaneExtend()
+    end)
 
     -- Chat Frame Button Background
     local chatButtonBG, chatButtonTitle = CreateSection(tabChat, "Chat Frame Buttons", "Hide the minimize button, background and borders on chat frames.", 200)
