@@ -54,6 +54,12 @@ end)
 3. Use standard WoW templates: `InterfaceOptionsCheckButtonTemplate`, `InterfaceOptionsSliderTemplate`
 4. Link checkbox/slider to `addon.db.yourSettingKey`
 
+**Client Compatibility (Retail vs Forever):**
+- The addon loads on both clients; a setting that only works on one must be registered in [`Compat.lua`](../Compat.lua)
+- Add a predicate to the `features` table (test for the API the feature uses; use `addon.isRetail` only when there is no API to test)
+- Pass the feature id as the 5th argument to `CreateSection` in Settings.lua so the section is hidden and the layout closes up
+- Guard the feature's call in `addon:ApplyTweaks()` with `self:IsFeatureSupported("id")`
+
 ## Project-Specific Patterns
 
 **Frame Positioning with Dragging:**

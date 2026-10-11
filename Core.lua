@@ -41,6 +41,7 @@ local defaults = {
         hideChatFrameMenuButton = false,
         hideChatFrameChannelButton = false,
         hideQuickJoinToastButton = false,
+        chatButtonsOnRight = false,
         hideChatTabs = false,
         showChatTabsOnHover = false,
         backgroundPanelEnabled = false,
@@ -64,6 +65,12 @@ local defaults = {
         nameplateFriendlyNameOffsetY = 10,
         nameplateFriendlyNameJustify = "CENTER",
         encounterBarPreyPercentEnabled = false,
+        cooldownAtMouseEnabled = false,
+        cooldownAtMouseDuration = 3.0,
+        cooldownAtMouseOffset = 40,
+        cooldownAtMouseAngle = 90,
+        cooldownAtMouseFont = "Fonts\\FRIZQT__.TTF",
+        cooldownAtMouseFontSize = 22,
     }
 }
 

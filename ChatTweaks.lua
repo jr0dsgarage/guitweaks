@@ -241,7 +241,48 @@ function addon:UpdateChatButtonBackgrounds()
         end
     end
 
+    addon:UpdateChatButtonSide()
     addon:UpdateChatTabs()
+end
+
+-- Chat Button Side
+-- Blizzard picks the side from the chat frame's screen position and anchors the
+-- menu, channel and social buttons to that button frame, so forcing its side moves them all.
+local buttonSideHooked = false
+local buttonSideForced = false
+
+function addon:UpdateChatButtonSide()
+    if not self:IsFeatureSupported("chatButtonSide") then
+        return
+    end
+
+    if not buttonSideHooked then
+        buttonSideHooked = true
+        -- Blizzard re-evaluates the side on login, docking and dragging; put it back
+        hooksecurefunc("FCF_SetButtonSide", function(chatFrame, buttonSide)
+            if addon.db.chatButtonsOnRight and buttonSide ~= "right" then
+                FCF_SetButtonSide(chatFrame, "right")
+            end
+        end)
+    end
+
+    if addon.db.chatButtonsOnRight then
+        buttonSideForced = true
+        for _, frameName in ipairs(CHAT_FRAMES or {}) do
+            local chatFrame = _G[frameName]
+            if chatFrame and chatFrame.buttonFrame then
+                FCF_SetButtonSide(chatFrame, "right")
+            end
+        end
+    elseif buttonSideForced then
+        buttonSideForced = false
+        for _, frameName in ipairs(CHAT_FRAMES or {}) do
+            local chatFrame = _G[frameName]
+            if chatFrame and chatFrame.buttonFrame then
+                FCF_UpdateButtonSide(chatFrame)
+            end
+        end
+    end
 end
 
 -- Chat Tabs

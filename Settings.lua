@@ -80,6 +80,7 @@ function addon:CreateSettingsPanel()
             scrollChild = scrollChild,
             totalHeight = 0,
             lastSection = nil,
+            visibleSections = 0,
         }
 
         table.insert(orderedPages, pageInfo)
@@ -91,11 +92,14 @@ function addon:CreateSettingsPanel()
     local tabFrameAdjustments = CreateSettingsPage("frameadjustments", "Frame Adjustments", "Adjust frame strata and status tracking positioning.")
     local tabChat = CreateSettingsPage("chat", "Chat Tweaks", "Customize chat behavior and chat frame controls.")
     local tabSpeed = CreateSettingsPage("speed", "Speed Tweaks", "Configure movement speed display options.")
+    local tabCooldowns = CreateSettingsPage("cooldowns", "Cooldown Tweaks", "Configure cooldown display options.")
     local tabNameplates = CreateSettingsPage("nameplates", "Nameplate Tweaks", "Configure friendly nameplate appearance and scaling.")
     local tabBackground = CreateSettingsPage("background", "Background", "Background panel and visual backdrop options.")
 
     -- Helper to add sections to a tab
-    local function CreateSection(tab, titleText, descriptionText, height)
+    -- featureID (optional): a Compat.lua feature; when the client can't support it the
+    -- section is still built, so the control code below it runs, but left out of the layout.
+    local function CreateSection(tab, titleText, descriptionText, height, featureID)
         local parent = tab.scrollChild
         local section = CreateFrame("Frame", nil, parent, "BackdropTemplate")
         section:SetBackdrop({
@@ -106,16 +110,20 @@ function addon:CreateSettingsPanel()
         })
         section:SetBackdropColor(0.1, 0.1, 0.1, 0.4)
         section:SetBackdropBorderColor(0.4, 0.4, 0.4, 0.8)
+        section:SetHeight(height)
 
-        if tab.lastSection then
+        local supported = not featureID or addon:IsFeatureSupported(featureID)
+        if not supported then
+            section:Hide()
+        elseif tab.lastSection then
             section:SetPoint("TOPLEFT", tab.lastSection, "BOTTOMLEFT", 0, -16)
+            section:SetPoint("RIGHT", parent, "RIGHT", -4, 0)
             tab.totalHeight = tab.totalHeight + 16
         else
             section:SetPoint("TOPLEFT", parent, "TOPLEFT", 4, -4)
+            section:SetPoint("RIGHT", parent, "RIGHT", -4, 0)
             tab.totalHeight = tab.totalHeight + 4
         end
-        section:SetPoint("RIGHT", parent, "RIGHT", -4, 0)
-        section:SetHeight(height)
 
         local title = section:CreateFontString(nil, "ARTWORK", "GameFontNormal")
         title:SetPoint("TOPLEFT", 10, -12) -- Adjusted padding to match Knack's padding roughly
@@ -127,9 +135,12 @@ function addon:CreateSettingsPanel()
         desc:SetJustifyH("LEFT")
         desc:SetText(descriptionText)
 
-        tab.lastSection = section
-        tab.totalHeight = tab.totalHeight + height
-        parent:SetHeight(math.max(tab.totalHeight, 100))
+        if supported then
+            tab.lastSection = section
+            tab.visibleSections = tab.visibleSections + 1
+            tab.totalHeight = tab.totalHeight + height
+            parent:SetHeight(math.max(tab.totalHeight, 100))
+        end
 
         return section, title, desc
     end
@@ -211,7 +222,7 @@ function addon:CreateSettingsPanel()
     end)
 
     -- Encounter Bar Prey %
-    local encounterBarGroup, encounterBarTitle = CreateSection(tabGeneral, "Encounter Bar", "Show the prey's health percentage on the encounter bar when hunting prey in outdoor zones.", 80)
+    local encounterBarGroup, encounterBarTitle = CreateSection(tabGeneral, "Encounter Bar", "Show the prey's health percentage on the encounter bar when hunting prey in outdoor zones.", 80, "preyPercent")
 
     local encounterPercentCheck = CreateFrame("CheckButton", nil, encounterBarGroup, "InterfaceOptionsCheckButtonTemplate")
     encounterPercentCheck:SetPoint("TOPLEFT", encounterBarTitle, "BOTTOMLEFT", 0, -10)
@@ -223,7 +234,7 @@ function addon:CreateSettingsPanel()
     end)
 
     -- Armor Set Action Highlights
-    local armorSetHighlightGroup, armorSetHighlightTitle = CreateSection(tabGeneral, "Armor Set Action Highlights", "Outline action buttons that trigger your currently equipped armor set.", 80)
+    local armorSetHighlightGroup, armorSetHighlightTitle = CreateSection(tabGeneral, "Armor Set Action Highlights", "Outline action buttons that trigger your currently equipped armor set.", 80, "armorSetHighlight")
 
     local armorSetHighlightCheck = CreateFrame("CheckButton", nil, armorSetHighlightGroup, "InterfaceOptionsCheckButtonTemplate")
     armorSetHighlightCheck:SetPoint("TOPLEFT", armorSetHighlightTitle, "BOTTOMLEFT", 0, -10)
@@ -406,7 +417,7 @@ function addon:CreateSettingsPanel()
     UIDropDownMenu_SetWidth(anchorDropdown, 120)
 
     -- Chat Frame Button Background
-    local chatButtonBG, chatButtonTitle = CreateSection(tabChat, "Chat Frame Buttons", "Hide the minimize button, background and borders on chat frames.", 170)
+    local chatButtonBG, chatButtonTitle = CreateSection(tabChat, "Chat Frame Buttons", "Hide the minimize button, background and borders on chat frames.", 200)
     
     local hideChatButtonBG = CreateFrame("CheckButton", nil, chatButtonBG, "InterfaceOptionsCheckButtonTemplate")
     hideChatButtonBG:SetPoint("TOPLEFT", chatButtonTitle, "BOTTOMLEFT", 0, -12)
@@ -443,6 +454,21 @@ function addon:CreateSettingsPanel()
         addon.db.hideQuickJoinToastButton = self:GetChecked()
         addon:ApplyTweaks()
     end)
+
+    local chatButtonsOnRight = CreateFrame("CheckButton", nil, chatButtonBG, "InterfaceOptionsCheckButtonTemplate")
+    chatButtonsOnRight:SetPoint("TOPLEFT", hideQuickJoinButton, "BOTTOMLEFT", 0, -4)
+    chatButtonsOnRight.Text:SetText("Move Buttons to Right Side of Chat")
+    chatButtonsOnRight:SetChecked(addon.db.chatButtonsOnRight)
+    chatButtonsOnRight:SetScript("OnClick", function(self)
+        addon.db.chatButtonsOnRight = self:GetChecked()
+        addon:ApplyTweaks()
+    end)
+    if not addon:IsFeatureSupported("chatButtonSide") then
+        -- Last row of the section, so the section just gets shorter
+        chatButtonsOnRight:Hide()
+        chatButtonBG:SetHeight(chatButtonBG:GetHeight() - 30)
+        tabChat.totalHeight = tabChat.totalHeight - 30
+    end
 
     -- Chat Tabs
     local chatTabsGroup, chatTabsTitle = CreateSection(tabChat, "Chat Tabs", "Control visibility of the tabs above chat frames.", 110)
@@ -1350,6 +1376,191 @@ function addon:CreateSettingsPanel()
     UIDropDownMenu_SetSelectedValue(justifyDropdown, selectedJustify)
     UIDropDownMenu_SetText(justifyDropdown, justifyText)
 
+    -- ====================
+    -- COOLDOWN TAB CONTENT
+    -- ====================
+    -- Lives after the nameplate section to reuse its font list; scoped to stay under the local limit
+    do
+        local cdMouseGroup, cdMouseTitle = CreateSection(tabCooldowns, "Cooldown Timer at Mouse", "Shows the time remaining beside the cursor when you press a spell that is still on cooldown.", 380, "cooldownAtMouse")
+
+        local cdMouseCheckbox = CreateFrame("CheckButton", nil, cdMouseGroup, "InterfaceOptionsCheckButtonTemplate")
+        cdMouseCheckbox:SetPoint("TOPLEFT", cdMouseTitle, "BOTTOMLEFT", 0, -12)
+        cdMouseCheckbox.Text:SetText("Show Cooldown Timer at Mouse")
+        cdMouseCheckbox:SetChecked(addon.db.cooldownAtMouseEnabled)
+
+        local cdMouseDurationSlider = CreateFrame("Slider", nil, cdMouseGroup, "OptionsSliderTemplate")
+        cdMouseDurationSlider:SetPoint("TOPLEFT", cdMouseCheckbox, "BOTTOMLEFT", 0, -28)
+        cdMouseDurationSlider:SetWidth(200)
+        cdMouseDurationSlider:SetMinMaxValues(1, 10)
+        cdMouseDurationSlider:SetValue(addon.db.cooldownAtMouseDuration or 3.0)
+        cdMouseDurationSlider:SetValueStep(0.5)
+        cdMouseDurationSlider:SetObeyStepOnDrag(true)
+        cdMouseDurationSlider.Low:SetText("1s")
+        cdMouseDurationSlider.High:SetText("10s")
+        cdMouseDurationSlider.Text:SetText(string.format("Duration: %.1fs", addon.db.cooldownAtMouseDuration or 3.0))
+
+        local cdMouseOffsetSlider = CreateFrame("Slider", nil, cdMouseGroup, "OptionsSliderTemplate")
+        cdMouseOffsetSlider:SetPoint("TOPLEFT", cdMouseDurationSlider, "BOTTOMLEFT", 0, -36)
+        cdMouseOffsetSlider:SetWidth(300)
+        cdMouseOffsetSlider:SetMinMaxValues(0, 300)
+        cdMouseOffsetSlider:SetValue(addon.db.cooldownAtMouseOffset or 40)
+        cdMouseOffsetSlider:SetValueStep(1)
+        cdMouseOffsetSlider:SetObeyStepOnDrag(true)
+        cdMouseOffsetSlider.Low:SetText("0")
+        cdMouseOffsetSlider.High:SetText("300")
+        cdMouseOffsetSlider.Text:SetText(string.format("Offset Distance: %d", addon.db.cooldownAtMouseOffset or 40))
+        cdMouseOffsetSlider:SetScript("OnValueChanged", function(self, value)
+            value = math.floor(value + 0.5)
+            self.Text:SetText(string.format("Offset Distance: %d", value))
+            addon.db.cooldownAtMouseOffset = value
+        end)
+
+        local cdMouseAngleSlider = CreateFrame("Slider", nil, cdMouseGroup, "OptionsSliderTemplate")
+        cdMouseAngleSlider:SetPoint("TOPLEFT", cdMouseOffsetSlider, "BOTTOMLEFT", 0, -36)
+        cdMouseAngleSlider:SetWidth(300)
+        cdMouseAngleSlider:SetMinMaxValues(0, 355)
+        cdMouseAngleSlider:SetValue(addon.db.cooldownAtMouseAngle or 90)
+        cdMouseAngleSlider:SetValueStep(5)
+        cdMouseAngleSlider:SetObeyStepOnDrag(true)
+        cdMouseAngleSlider.Low:SetText("0 (above)")
+        cdMouseAngleSlider.High:SetText("355")
+        cdMouseAngleSlider.Text:SetText(string.format("Offset Rotation: %d", addon.db.cooldownAtMouseAngle or 90))
+        cdMouseAngleSlider:SetScript("OnValueChanged", function(self, value)
+            value = math.floor(value / 5 + 0.5) * 5
+            self.Text:SetText(string.format("Offset Rotation: %d", value))
+            addon.db.cooldownAtMouseAngle = value
+        end)
+
+        cdMouseDurationSlider:SetScript("OnValueChanged", function(self, value)
+            value = math.floor(value * 2 + 0.5) / 2
+            self.Text:SetText(string.format("Duration: %.1fs", value))
+            addon.db.cooldownAtMouseDuration = value
+        end)
+
+        local cdMouseSizeSlider = CreateFrame("Slider", nil, cdMouseGroup, "OptionsSliderTemplate")
+        cdMouseSizeSlider:SetPoint("TOPLEFT", cdMouseAngleSlider, "BOTTOMLEFT", 0, -36)
+        cdMouseSizeSlider:SetWidth(300)
+        cdMouseSizeSlider:SetMinMaxValues(8, 72)
+        cdMouseSizeSlider:SetValue(addon.db.cooldownAtMouseFontSize or 22)
+        cdMouseSizeSlider:SetValueStep(1)
+        cdMouseSizeSlider:SetObeyStepOnDrag(true)
+        cdMouseSizeSlider.Low:SetText("8")
+        cdMouseSizeSlider.High:SetText("72")
+        cdMouseSizeSlider.Text:SetText(string.format("Font Size: %d", addon.db.cooldownAtMouseFontSize or 22))
+        cdMouseSizeSlider:SetScript("OnValueChanged", function(self, value)
+            value = math.floor(value + 0.5)
+            self.Text:SetText(string.format("Font Size: %d", value))
+            addon.db.cooldownAtMouseFontSize = value
+            addon:UpdateCooldownAtMouseFont()
+        end)
+
+        local cdMouseFontLabel = cdMouseGroup:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        cdMouseFontLabel:SetPoint("TOPLEFT", cdMouseSizeSlider, "BOTTOMLEFT", 0, -24)
+        cdMouseFontLabel:SetText("Typeface")
+
+        local cdMouseFontDropdown = CreateFrame("Frame", "GUIT_CooldownAtMouseFontDropdown", cdMouseGroup, "UIDropDownMenuTemplate")
+        cdMouseFontDropdown:SetPoint("TOPLEFT", cdMouseFontLabel, "BOTTOMLEFT", -16, -2)
+        UIDropDownMenu_SetWidth(cdMouseFontDropdown, 210)
+
+        -- One Font object per typeface so each menu entry is drawn in its own font
+        local cdMousePreviewFonts = {}
+        local cdMousePreviewFontCount = 0
+        local function GetPreviewFont(path)
+            local font = cdMousePreviewFonts[path]
+            if font == nil then
+                cdMousePreviewFontCount = cdMousePreviewFontCount + 1
+                font = CreateFont("GUIT_CooldownFontPreview" .. cdMousePreviewFontCount)
+                -- Only an explicit false is a failure; SetFont returns nothing on success here
+                if font:SetFont(path, 14, "") == false then
+                    font = false -- font file missing; fall back to the default menu font
+                end
+                cdMousePreviewFonts[path] = font
+            end
+            return font or nil
+        end
+
+        local function AddCooldownFontButton(item, level)
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = item.name
+            info.value = item.path
+            info.fontObject = GetPreviewFont(item.path)
+            info.checked = ((addon.db.cooldownAtMouseFont or "Fonts\\FRIZQT__.TTF") == item.path)
+            info.func = function(btn)
+                addon.db.cooldownAtMouseFont = btn.value
+                UIDropDownMenu_SetSelectedValue(cdMouseFontDropdown, btn.value)
+                UIDropDownMenu_SetText(cdMouseFontDropdown, GetFriendlyFontDisplayName(btn.value))
+                addon:UpdateCooldownAtMouseFont()
+                CloseDropDownMenus()
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+
+        UIDropDownMenu_Initialize(cdMouseFontDropdown, function(self, level)
+            local _, grouped, groupOrder = BuildFriendlyFontList()
+            local menuList = UIDROPDOWNMENU_MENU_VALUE
+
+            if level == 1 then
+                for _, group in ipairs(groupOrder) do
+                    if #(grouped[group] or {}) > 0 then
+                        local info = UIDropDownMenu_CreateInfo()
+                        info.text = group
+                        info.hasArrow = true
+                        info.notCheckable = true
+                        info.value = { kind = "group", group = group }
+                        UIDropDownMenu_AddButton(info, level)
+                    end
+                end
+            elseif level == 2 and type(menuList) == "table" and menuList.kind == "group" then
+                local fontsInGroup = grouped[menuList.group] or {}
+                if #fontsInGroup > 24 then
+                    for idx = 1, #fontsInGroup, 24 do
+                        local finish = math.min(idx + 23, #fontsInGroup)
+                        local info = UIDropDownMenu_CreateInfo()
+                        info.text = string.format("%d-%d", idx, finish)
+                        info.hasArrow = true
+                        info.notCheckable = true
+                        info.value = { kind = "page", group = menuList.group, startIndex = idx, endIndex = finish }
+                        UIDropDownMenu_AddButton(info, level)
+                    end
+                else
+                    for _, item in ipairs(fontsInGroup) do
+                        AddCooldownFontButton(item, level)
+                    end
+                end
+            elseif level == 3 and type(menuList) == "table" and menuList.kind == "page" then
+                local fontsInGroup = grouped[menuList.group] or {}
+                for idx = menuList.startIndex, menuList.endIndex do
+                    if fontsInGroup[idx] then
+                        AddCooldownFontButton(fontsInGroup[idx], level)
+                    end
+                end
+            end
+        end)
+
+        UIDropDownMenu_SetSelectedValue(cdMouseFontDropdown, addon.db.cooldownAtMouseFont or "Fonts\\FRIZQT__.TTF")
+        UIDropDownMenu_SetText(cdMouseFontDropdown, GetFriendlyFontDisplayName(addon.db.cooldownAtMouseFont or "Fonts\\FRIZQT__.TTF"))
+
+        local function UpdateCooldownControls()
+            local enabled = addon.db.cooldownAtMouseEnabled
+            cdMouseDurationSlider:SetEnabled(enabled)
+            cdMouseOffsetSlider:SetEnabled(enabled)
+            cdMouseAngleSlider:SetEnabled(enabled)
+            cdMouseSizeSlider:SetEnabled(enabled)
+            if enabled then
+                UIDropDownMenu_EnableDropDown(cdMouseFontDropdown)
+            else
+                UIDropDownMenu_DisableDropDown(cdMouseFontDropdown)
+            end
+        end
+        UpdateCooldownControls()
+
+        cdMouseCheckbox:SetScript("OnClick", function(self)
+            addon.db.cooldownAtMouseEnabled = self:GetChecked()
+            addon:SetCooldownAtMouseEnabled(addon.db.cooldownAtMouseEnabled)
+            UpdateCooldownControls()
+        end)
+    end
+
     addon.settingsPanel = panel
     addon.settingsPages = addon.settingsPages or {}
     for _, page in ipairs(orderedPages) do
@@ -1363,16 +1574,21 @@ function addon:CreateSettingsPanel()
         addon.settingsCategory = category
         addon.settingsSubcategories = addon.settingsSubcategories or {}
 
+        -- Pages with nothing viable on this client are left out of the list
         for _, page in ipairs(orderedPages) do
-            local sub = Settings.RegisterCanvasLayoutSubcategory(category, page.frame, page.name)
-            addon.settingsSubcategories[page.id] = sub
+            if page.visibleSections > 0 then
+                local sub = Settings.RegisterCanvasLayoutSubcategory(category, page.frame, page.name)
+                addon.settingsSubcategories[page.id] = sub
+            end
         end
     else
         InterfaceOptions_AddCategory(panel)
         for _, page in ipairs(orderedPages) do
-            page.frame.parent = panel.name
-            page.frame.name = page.name
-            InterfaceOptions_AddCategory(page.frame)
+            if page.visibleSections > 0 then
+                page.frame.parent = panel.name
+                page.frame.name = page.name
+                InterfaceOptions_AddCategory(page.frame)
+            end
         end
     end
 end

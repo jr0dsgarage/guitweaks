@@ -836,11 +836,14 @@ function addon:ApplyTweaks()
     self:ApplyExperienceBarStrata(self.db.experienceBarsForceHighestStrata)
     self:ApplyTopCenterWidgetOffset(self.db.topCenterWidgetOffset)
     self:SetSpeedPanelEnabled(self.db.speedPanelEnabled)
+    self:SetCooldownAtMouseEnabled(self.db.cooldownAtMouseEnabled)
     self:InitChatTweaks()
     self:UpdateOverrideActionBar()
     self:SetPartyFrameCenteringEnabled(self.db.centerPartyFramesEnabled)
     self:SetRaidFrameCenteringEnabled(self.db.centerRaidFramesEnabled)
-    self:SetArmorSetActionHighlightEnabled(self.db.armorSetActionHighlightEnabled)
+    if self:IsFeatureSupported("armorSetHighlight") then
+        self:SetArmorSetActionHighlightEnabled(self.db.armorSetActionHighlightEnabled)
+    end
 
     -- Nameplate Tweaks
     self:UpdateNameplateScale()
@@ -850,7 +853,9 @@ function addon:ApplyTweaks()
         self:SetFriendlyClassColorCVar(self.db.nameplateUseClassColorForFriendlyPlayerUnitNames)
     end
 
-    self:InitEncounterBarPreyPercent()
+    if self:IsFeatureSupported("preyPercent") then
+        self:InitEncounterBarPreyPercent()
+    end
 end
 
 function addon:UpdateNameplateScale()
