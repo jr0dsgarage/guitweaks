@@ -89,12 +89,12 @@ function addon:CreateSettingsPanel()
 
     -- Page Definitions
     local tabGeneral = CreateSettingsPage("general", "General Tweaks", "Core quality-of-life improvements and shared behavior.")
-    local tabFrameAdjustments = CreateSettingsPage("frameadjustments", "Frame Adjustments", "Adjust frame strata and status tracking positioning.")
+    local tabFrameAdjustments = CreateSettingsPage("frameadjustments", "Frame Tweaks", "Adjust frame strata and status tracking positioning.")
     local tabChat = CreateSettingsPage("chat", "Chat Tweaks", "Customize chat behavior and chat frame controls.")
-    local tabSpeed = CreateSettingsPage("speed", "Speed Tweaks", "Configure movement speed display options.")
+    local tabSpeed = CreateSettingsPage("speed", "Speed Panel Tweaks", "Configure movement speed display options.")
     local tabCooldowns = CreateSettingsPage("cooldowns", "Cooldown Tweaks", "Configure cooldown display options.")
     local tabNameplates = CreateSettingsPage("nameplates", "Nameplate Tweaks", "Configure friendly nameplate appearance.")
-    local tabBackground = CreateSettingsPage("background", "Background", "Background panel and visual backdrop options.")
+    local tabBackground = CreateSettingsPage("background", "Background Panel Tweaks", "Background panel and visual backdrop options.")
 
     -- Helper to add sections to a tab
     -- featureID (optional): a Compat.lua feature; when the client can't support it the
@@ -529,7 +529,7 @@ function addon:CreateSettingsPanel()
     -- ====================
     -- SPEED PANEL TAB
     -- ====================
-    local speedPanel, speedTitle = CreateSection(tabSpeed, "Speed Panel", "Displays your current movement speed.", 280)
+    local speedPanel, speedTitle = CreateSection(tabSpeed, "Speed Panel", "Displays your current movement speed.", 185)
     
     local speedCheckbox = CreateFrame("CheckButton", nil, speedPanel, "InterfaceOptionsCheckButtonTemplate")
     speedCheckbox:SetPoint("TOPLEFT", speedTitle, "BOTTOMLEFT", 0, -12)
@@ -541,11 +541,6 @@ function addon:CreateSettingsPanel()
     lockCheckbox.Text:SetText("Lock Panel Position")
     lockCheckbox:SetChecked(addon.db.speedPanelLocked)
 
-    local debugCheckbox = CreateFrame("CheckButton", nil, speedPanel, "InterfaceOptionsCheckButtonTemplate")
-    debugCheckbox:SetPoint("LEFT", speedCheckbox, "RIGHT", 150, 0)
-    debugCheckbox.Text:SetText("Debug Mode")
-    debugCheckbox:SetChecked(addon.db.speedPanelDebug or false)
-
     local resetButton = CreateFrame("Button", nil, speedPanel, "UIPanelButtonTemplate")
     resetButton:SetPoint("TOPLEFT", lockCheckbox, "BOTTOMLEFT", 0, -16)
     resetButton:SetSize(120, 22)
@@ -555,7 +550,7 @@ function addon:CreateSettingsPanel()
     speedInfo:SetPoint("TOPLEFT", resetButton, "BOTTOMLEFT", 0, -16)
     speedInfo:SetWidth(300)
     speedInfo:SetJustifyH("LEFT")
-    speedInfo:SetText("Use /speedpanel to toggle options from chat.\nDrag the panel to move it when unlocked.")
+    speedInfo:SetText("Drag the panel to move it when unlocked.")
 
     -- Speed Panel Logic
     local function UpdateSpeedControls()
@@ -579,12 +574,7 @@ function addon:CreateSettingsPanel()
     
     lockCheckbox:SetScript("OnClick", function(self)
         addon.db.speedPanelLocked = self:GetChecked()
-        if addon.SpeedPanel then addon.SpeedPanel:EnableMouse(not addon.db.speedPanelLocked) end
-    end)
-
-    debugCheckbox:SetScript("OnClick", function(self)
-        addon.db.speedPanelDebug = self:GetChecked()
-        if addon.SpeedPanel then addon.SpeedPanel:SetDebug(addon.db.speedPanelDebug) end
+        addon:RefreshSpeedPanelLock()
     end)
 
     resetButton:SetScript("OnClick", function() addon:ResetSpeedPanelPosition() end)
@@ -1587,6 +1577,158 @@ function addon:CreateSettingsPanel()
 
         chatFontGroup:SetScript("OnShow", RefreshChatFontControls)
         RefreshChatFontControls()
+    end
+
+    -- ====================
+    -- SPEED PANEL APPEARANCE (Speed tab; down here to use the font dropdown)
+    -- ====================
+    do
+        local speedLookGroup, speedLookTitle = CreateSection(tabSpeed, "Appearance", "Font, colors, background and border of the speed panel.", 460)
+
+        local function Apply()
+            addon:ApplySpeedPanelAppearance()
+        end
+
+        -- Dropdown over a list of { key = ..., name = ... } options
+        local function CreateChoiceDropdown(globalName, options, dbKey, defaultKey)
+            local dropdown = CreateFrame("Frame", globalName, speedLookGroup, "UIDropDownMenuTemplate")
+            UIDropDownMenu_SetWidth(dropdown, 210)
+
+            local function NameOf(key)
+                for _, option in ipairs(options) do
+                    if option.key == key then return option.name end
+                end
+                return key
+            end
+
+            UIDropDownMenu_Initialize(dropdown, function()
+                local current = addon.db[dbKey] or defaultKey
+                for _, option in ipairs(options) do
+                    local info = UIDropDownMenu_CreateInfo()
+                    info.text = option.name
+                    info.value = option.key
+                    info.checked = (option.key == current)
+                    info.func = function(btn)
+                        addon.db[dbKey] = btn.value
+                        UIDropDownMenu_SetSelectedValue(dropdown, btn.value)
+                        UIDropDownMenu_SetText(dropdown, NameOf(btn.value))
+                        Apply()
+                    end
+                    UIDropDownMenu_AddButton(info)
+                end
+            end)
+
+            UIDropDownMenu_SetSelectedValue(dropdown, addon.db[dbKey] or defaultKey)
+            UIDropDownMenu_SetText(dropdown, NameOf(addon.db[dbKey] or defaultKey))
+            return dropdown
+        end
+
+        -- A label with a clickable color square that opens the color picker (with opacity)
+        local function CreateColorRow(labelText, dbKey, default)
+            local row = CreateFrame("Frame", nil, speedLookGroup)
+            row:SetSize(260, 20)
+
+            local label = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+            label:SetPoint("LEFT", row, "LEFT", 0, 0)
+            label:SetText(labelText)
+
+            local swatch = CreateFrame("Button", nil, row)
+            swatch:SetSize(20, 20)
+            swatch:SetPoint("LEFT", label, "RIGHT", 10, 0)
+            local border = swatch:CreateTexture(nil, "BACKGROUND")
+            border:SetAllPoints()
+            border:SetColorTexture(1, 1, 1, 1)
+            local fill = swatch:CreateTexture(nil, "ARTWORK")
+            fill:SetPoint("TOPLEFT", 1, -1)
+            fill:SetPoint("BOTTOMRIGHT", -1, 1)
+
+            local function Get()
+                return addon.db[dbKey] or default
+            end
+            local function Set(r, g, b, a)
+                addon.db[dbKey] = { r = r, g = g, b = b, a = a }
+                fill:SetColorTexture(r, g, b, 1)
+                Apply()
+            end
+            fill:SetColorTexture(Get().r, Get().g, Get().b, 1)
+
+            swatch:SetScript("OnClick", function()
+                if not ColorPickerFrame or not ColorPickerFrame.SetupColorPickerAndShow then
+                    return
+                end
+                local old = Get()
+                local function OnChanged()
+                    local r, g, b = ColorPickerFrame:GetColorRGB()
+                    Set(r, g, b, ColorPickerFrame:GetColorAlpha())
+                end
+                ColorPickerFrame:SetupColorPickerAndShow({
+                    r = old.r, g = old.g, b = old.b, opacity = old.a,
+                    hasOpacity = true,
+                    swatchFunc = OnChanged,
+                    opacityFunc = OnChanged,
+                    cancelFunc = function() Set(old.r, old.g, old.b, old.a) end,
+                })
+            end)
+
+            return row
+        end
+
+        local function CreateLabel(text, anchorTo, offsetY)
+            local label = speedLookGroup:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+            label:SetPoint("TOPLEFT", anchorTo, "BOTTOMLEFT", 0, offsetY)
+            label:SetText(text)
+            return label
+        end
+
+        -- Text
+        local fontLabel = CreateLabel("Typeface", speedLookTitle, -14)
+        local fontDropdown = CreateFontDropdown(speedLookGroup, "GUIT_SpeedPanelFontDropdown",
+            function() return addon.db.speedPanelFont end,
+            function(path)
+                addon.db.speedPanelFont = path
+                Apply()
+            end)
+        fontDropdown:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", -16, -2)
+
+        local outlineLabel = CreateLabel("Outline", fontLabel, -46)
+        local outlineDropdown = CreateChoiceDropdown("GUIT_SpeedPanelOutlineDropdown", addon:GetSpeedPanelOutlineOptions(), "speedPanelFontOutline", "NONE")
+        outlineDropdown:SetPoint("TOPLEFT", outlineLabel, "BOTTOMLEFT", -16, -2)
+
+        local sizeSlider = CreateFrame("Slider", nil, speedLookGroup, "OptionsSliderTemplate")
+        sizeSlider:SetPoint("TOPLEFT", outlineLabel, "BOTTOMLEFT", 0, -62)
+        sizeSlider:SetWidth(300)
+        sizeSlider:SetMinMaxValues(8, 40)
+        sizeSlider:SetValueStep(1)
+        sizeSlider:SetObeyStepOnDrag(true)
+        sizeSlider.Low:SetText("8")
+        sizeSlider.High:SetText("40")
+        sizeSlider:SetValue(addon.db.speedPanelFontSize or 16)
+        sizeSlider.Text:SetText(string.format("Font Size: %d", addon.db.speedPanelFontSize or 16))
+        sizeSlider:SetScript("OnValueChanged", function(self, value)
+            value = math.floor(value + 0.5)
+            self.Text:SetText(string.format("Font Size: %d", value))
+            addon.db.speedPanelFontSize = value
+            Apply()
+        end)
+
+        local textColorRow = CreateColorRow("Text Color", "speedPanelTextColor", { r = 1, g = 1, b = 1, a = 1 })
+        textColorRow:SetPoint("TOPLEFT", sizeSlider, "BOTTOMLEFT", 0, -28)
+
+        -- Background
+        local backgroundLabel = CreateLabel("Background", textColorRow, -18)
+        local backgroundDropdown = CreateChoiceDropdown("GUIT_SpeedPanelBackgroundDropdown", addon:GetSpeedPanelBackgroundOptions(), "speedPanelBackgroundKey", "dialog")
+        backgroundDropdown:SetPoint("TOPLEFT", backgroundLabel, "BOTTOMLEFT", -16, -2)
+
+        local backgroundColorRow = CreateColorRow("Background Color / Opacity", "speedPanelBackgroundColor", { r = 0, g = 0, b = 0, a = 0.55 })
+        backgroundColorRow:SetPoint("TOPLEFT", backgroundLabel, "BOTTOMLEFT", 0, -46)
+
+        -- Border
+        local borderLabel = CreateLabel("Border", backgroundColorRow, -18)
+        local borderDropdown = CreateChoiceDropdown("GUIT_SpeedPanelBorderDropdown", addon:GetSpeedPanelBorderOptions(), "speedPanelBorderKey", "tooltip")
+        borderDropdown:SetPoint("TOPLEFT", borderLabel, "BOTTOMLEFT", -16, -2)
+
+        local borderColorRow = CreateColorRow("Border Color (shown when locked)", "speedPanelBorderColor", { r = 0.4, g = 0.4, b = 0.4, a = 0.9 })
+        borderColorRow:SetPoint("TOPLEFT", borderLabel, "BOTTOMLEFT", 0, -46)
     end
 
     addon.settingsPanel = panel

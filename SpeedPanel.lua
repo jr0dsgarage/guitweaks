@@ -2,21 +2,19 @@
 -- Garage UI Tweaks - Speed Panel
 local addonName, addon = ...
 
-local BASE_RUN_SPEED = 7
+local BASE_RUN_SPEED = 7 -- yards per second on foot with no bonuses; this is 100%
 local SPEED_UPDATE_INTERVAL = 0.05
 local FALLBACK_SAMPLE_INTERVAL = 0.25
 local MAX_SPEED_TEXT = "Speed: 9999% (999.9 yd/s)"
 
-local DEFAULT_FONT_KEY = "GameFontHighlightLarge"
+local DEFAULT_FONT_SIZE = 16
 local DEFAULT_BACKGROUND_KEY = "dialog"
 local DEFAULT_BORDER_KEY = "tooltip"
 
-local SPEED_PANEL_FONT_OPTIONS = {
-    { key = "GameFontHighlightLarge", name = "Game Font Large" },
-    { key = "GameFontNormalLarge", name = "Game Font Normal Large" },
-    { key = "GameFontNormal", name = "Game Font Normal" },
-    { key = "GameFontHighlight", name = "Game Font Highlight" },
-    { key = "NumberFontNormalLarge", name = "Number Font Large" },
+local SPEED_PANEL_OUTLINE_OPTIONS = {
+    { key = "NONE", name = "None", flags = "" },
+    { key = "OUTLINE", name = "Outline", flags = "OUTLINE" },
+    { key = "THICKOUTLINE", name = "Thick Outline", flags = "THICKOUTLINE" },
 }
 
 local SPEED_PANEL_BACKGROUND_OPTIONS = {
@@ -33,14 +31,14 @@ local SPEED_PANEL_BORDER_OPTIONS = {
     { key = "none", name = "None", texture = nil, edgeSize = 0, insets = { left = 0, right = 0, top = 0, bottom = 0 } },
 }
 
-local FONT_LOOKUP = {}
+local OUTLINE_LOOKUP = {}
 local BACKGROUND_LOOKUP = {}
 local BORDER_LOOKUP = {}
 
 local updateSpeedPanelText
 
-for _, option in ipairs(SPEED_PANEL_FONT_OPTIONS) do
-    FONT_LOOKUP[option.key] = option
+for _, option in ipairs(SPEED_PANEL_OUTLINE_OPTIONS) do
+    OUTLINE_LOOKUP[option.key] = option
 end
 
 local function sizeSpeedPanelFrame(frame)
@@ -56,10 +54,6 @@ local function sizeSpeedPanelFrame(frame)
     frame.text:SetText(originalText)
 end
 
-local function getFontOption(key)
-    return (key and FONT_LOOKUP[key]) or FONT_LOOKUP[DEFAULT_FONT_KEY] or SPEED_PANEL_FONT_OPTIONS[1]
-end
-
 local function getBackgroundOption(key)
     return (key and BACKGROUND_LOOKUP[key]) or BACKGROUND_LOOKUP[DEFAULT_BACKGROUND_KEY] or SPEED_PANEL_BACKGROUND_OPTIONS[1]
 end
@@ -68,8 +62,8 @@ local function getBorderOption(key)
     return (key and BORDER_LOOKUP[key]) or BORDER_LOOKUP[DEFAULT_BORDER_KEY] or SPEED_PANEL_BORDER_OPTIONS[1]
 end
 
-function addon:GetSpeedPanelFontOptions()
-    return SPEED_PANEL_FONT_OPTIONS
+function addon:GetSpeedPanelOutlineOptions()
+    return SPEED_PANEL_OUTLINE_OPTIONS
 end
 
 function addon:GetSpeedPanelBackgroundOptions()
@@ -80,11 +74,6 @@ function addon:GetSpeedPanelBorderOptions()
     return SPEED_PANEL_BORDER_OPTIONS
 end
 
-function addon:GetSpeedPanelFontName(key)
-    local option = getFontOption(key)
-    return option and option.name or key or "Unknown"
-end
-
 function addon:GetSpeedPanelBackgroundName(key)
     local option = getBackgroundOption(key)
     return option and option.name or key or "Unknown"
@@ -93,17 +82,6 @@ end
 function addon:GetSpeedPanelBorderName(key)
     local option = getBorderOption(key)
     return option and option.name or key or "Unknown"
-end
-
-function addon:SetSpeedPanelFont(key)
-    if not FONT_LOOKUP[key] then
-        return
-    end
-    if not addon.db then
-        return
-    end
-    addon.db.speedPanelFontKey = key
-    addon:ApplySpeedPanelAppearance()
 end
 
 function addon:SetSpeedPanelBackground(key)
@@ -193,17 +171,6 @@ local function computeFallbackSpeed(active)
     return tracker.lastSpeed
 end
 
-local function chooseBaseline(...)
-    local baseline
-    for i = 1, select('#', ...) do
-        local value = select(i, ...)
-        if type(value) == "number" and value > 0 then
-            baseline = baseline and math.min(baseline, value) or value
-        end
-    end
-    return baseline or BASE_RUN_SPEED
-end
-
 -- GetUnitSpeed can return protected/secret numeric values under taint.
 -- Use pcall-based coercion so all downstream math uses plain Lua numbers.
 local function coerceSpeedValue(value, fallback)
@@ -226,37 +193,19 @@ local function coerceSpeedValue(value, fallback)
     return fallback or 0
 end
 
+-- Current speed in yards per second (the faster of you and your vehicle).
 local function getPlayerSpeed()
     if not GetUnitSpeed then
-        local fallback = computeFallbackSpeed(true)
-        return fallback or 0, BASE_RUN_SPEED, 0, 0, 0, fallback or 0
+        return computeFallbackSpeed(true) or 0
     end
 
-    local ok, current, baseline, runSpeed, flightSpeed, swimSpeed, fallback = pcall(function()
-        local rawCurrent, rawRunSpeed, rawFlightSpeed, rawSwimSpeed = GetUnitSpeed("player")
-        local localCurrent = coerceSpeedValue(rawCurrent, 0)
-        local localRunSpeed = coerceSpeedValue(rawRunSpeed, 0)
-        local localFlightSpeed = coerceSpeedValue(rawFlightSpeed, 0)
-        local localSwimSpeed = coerceSpeedValue(rawSwimSpeed, 0)
+    local ok, current = pcall(function()
+        local localCurrent = coerceSpeedValue(GetUnitSpeed("player"), 0)
 
         if UnitInVehicle and UnitInVehicle("player") and UnitExists and UnitExists("vehicle") then
-            local vehCurrent, vehRun, vehFlight, vehSwim = GetUnitSpeed("vehicle")
-            vehCurrent = coerceSpeedValue(vehCurrent, 0)
-            vehRun = coerceSpeedValue(vehRun, 0)
-            vehFlight = coerceSpeedValue(vehFlight, 0)
-            vehSwim = coerceSpeedValue(vehSwim, 0)
-
+            local vehCurrent = coerceSpeedValue(GetUnitSpeed("vehicle"), 0)
             if vehCurrent > localCurrent then
                 localCurrent = vehCurrent
-            end
-            if vehRun > localRunSpeed then
-                localRunSpeed = vehRun
-            end
-            if vehFlight > localFlightSpeed then
-                localFlightSpeed = vehFlight
-            end
-            if vehSwim > localSwimSpeed then
-                localSwimSpeed = vehSwim
             end
         end
 
@@ -264,42 +213,24 @@ local function getPlayerSpeed()
             localCurrent = 0
         end
 
-        local localBaseline = chooseBaseline(localRunSpeed, localFlightSpeed, localSwimSpeed, BASE_RUN_SPEED)
-        local localFallback
-
         if (localCurrent <= 0.1) and (
             (IsFlying and IsFlying()) or
             (UnitInVehicle and UnitInVehicle("player"))
         ) then
-            localFallback = computeFallbackSpeed(true)
+            local localFallback = computeFallbackSpeed(true)
             if localFallback and localFallback > localCurrent then
                 localCurrent = localFallback
             end
         end
 
-        return localCurrent, localBaseline, localRunSpeed, localFlightSpeed, localSwimSpeed, localFallback
+        return localCurrent
     end)
 
     if ok then
-        return current, baseline, runSpeed, flightSpeed, swimSpeed, fallback
+        return current
     end
 
-    local safeFallback = computeFallbackSpeed(true)
-    return safeFallback or 0, BASE_RUN_SPEED, 0, 0, 0, safeFallback or 0
-end
-
-function addon:DebugSpeedPanel(current, baseline, runSpeed, flightSpeed, swimSpeed, fallback)
-    if not self.db or not self.db.speedPanelDebug or not DEFAULT_CHAT_FRAME then
-        return
-    end
-
-    local now = GetTime and GetTime() or 0
-    if now and self.lastSpeedDebug and (now - self.lastSpeedDebug) < 0.5 then
-        return
-    end
-
-    self.lastSpeedDebug = now
-    DEFAULT_CHAT_FRAME:AddMessage(string.format("|cff00ff00GUIT Speed Debug|r current=%.2f run=%.2f flight=%.2f swim=%.2f baseline=%.2f fallback=%.2f", current or 0, runSpeed or 0, flightSpeed or 0, swimSpeed or 0, baseline or 0, fallback or 0))
+    return computeFallbackSpeed(true) or 0
 end
 
 function addon:ApplySpeedPanelPosition()
@@ -315,12 +246,8 @@ local function updateSpeedPanelText(frame, force)
         return
     end
 
-    local speed, baseline, runSpeed, flightSpeed, swimSpeed, fallback = getPlayerSpeed()
-
-    local percent = 0
-    if baseline > 0 then
-        percent = (speed / baseline) * 100
-    end
+    local speed = getPlayerSpeed()
+    local percent = (speed / BASE_RUN_SPEED) * 100
 
     if percent ~= percent then -- NaN guard
         percent = 0
@@ -337,9 +264,6 @@ local function updateSpeedPanelText(frame, force)
     frame.lastYards = yardsPerSecond
 
     frame.text:SetText(string.format("Speed: %d%% (%.1f yd/s)", roundedPercent, yardsPerSecond))
-
-    addon:DebugSpeedPanel(speed, baseline, runSpeed, flightSpeed, swimSpeed, fallback)
-
 end
 
 local function applySpeedPanelAppearance(frame)
@@ -348,11 +272,16 @@ local function applySpeedPanelAppearance(frame)
     end
 
     local db = addon.db or {}
-    local fontOption = getFontOption(db.speedPanelFontKey)
-    local fontObject = _G[fontOption.key] or _G[DEFAULT_FONT_KEY] or GameFontHighlightLarge
-    if fontObject then
-        frame.text:SetFontObject(fontObject)
+    local defaultFont = GameFontHighlightLarge:GetFont()
+    local fontSize = db.speedPanelFontSize or DEFAULT_FONT_SIZE
+    local outline = OUTLINE_LOOKUP[db.speedPanelFontOutline] or OUTLINE_LOOKUP.NONE
+    -- Only an explicit false is a failure; SetFont returns nothing on success here
+    if frame.text:SetFont(db.speedPanelFont or defaultFont, fontSize, outline.flags) == false then
+        frame.text:SetFont(defaultFont, fontSize, outline.flags)
     end
+
+    local textColor = db.speedPanelTextColor or { r = 1, g = 1, b = 1, a = 1 }
+    frame.text:SetTextColor(textColor.r, textColor.g, textColor.b, textColor.a)
 
     local backgroundOption = getBackgroundOption(db.speedPanelBackgroundKey)
     local borderOption = getBorderOption(db.speedPanelBorderKey)
@@ -364,11 +293,8 @@ local function applySpeedPanelAppearance(frame)
         insets = borderOption.insets or { left = 3, right = 3, top = 3, bottom = 3 },
     })
 
-    if backgroundOption.key == "solid" then
-        frame:SetBackdropColor(0, 0, 0, 0.55)
-    else
-        frame:SetBackdropColor(0, 0, 0, 0.55)
-    end
+    local bgColor = db.speedPanelBackgroundColor or { r = 0, g = 0, b = 0, a = 0.55 }
+    frame:SetBackdropColor(bgColor.r, bgColor.g, bgColor.b, bgColor.a)
 
     sizeSpeedPanelFrame(frame)
     addon:RefreshSpeedPanelLock()
@@ -495,9 +421,11 @@ function addon:RefreshSpeedPanelLock()
     frame.isLocked = locked and true or false
 
     if locked then
-        frame:SetBackdropBorderColor(0.4, 0.4, 0.4, 0.9)
+        local borderColor = self.db.speedPanelBorderColor or { r = 0.4, g = 0.4, b = 0.4, a = 0.9 }
+        frame:SetBackdropBorderColor(borderColor.r, borderColor.g, borderColor.b, borderColor.a)
         frame:SetMovable(false)
     else
+        -- Yellow marks the panel as movable; the chosen border color shows once it is locked
         frame:SetBackdropBorderColor(0.8, 0.8, 0.2, 0.9)
         frame:SetMovable(true)
     end

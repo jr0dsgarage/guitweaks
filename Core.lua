@@ -30,8 +30,11 @@ local defaults = {
         topCenterWidgetOffset = 0,
         speedPanelEnabled = false,
         speedPanelLocked = false,
-        speedPanelDebug = false,
-        speedPanelFontKey = "GameFontHighlightLarge",
+        speedPanelFontSize = 16,
+        speedPanelFontOutline = "NONE",
+        speedPanelTextColor = {r=1, g=1, b=1, a=1},
+        speedPanelBackgroundColor = {r=0, g=0, b=0, a=0.55},
+        speedPanelBorderColor = {r=0.4, g=0.4, b=0.4, a=0.9},
         speedPanelBackgroundKey = "dialog",
         speedPanelBorderKey = "tooltip",
         chatEditBoxUnlock = false,
@@ -132,7 +135,6 @@ local function PrintHelp()
     print("|cff00ff00Garage UI Tweaks|r commands:")
     print("  |cffffffff/guit|r or |cffffffff/guitweaks|r - open settings")
     print("  |cffffffff/guit config|r - open settings")
-    print("  |cffffffff/guit speeddebug [on|off]|r - toggle speed panel debug output")
 end
 
 SLASH_GUIT1 = "/guit"
@@ -146,20 +148,6 @@ SlashCmdList["GUIT"] = function(msg)
         addon:OpenSettings()
         if msg == "" then
             PrintHelp()
-        end
-        return
-    end
-
-    if msg:sub(1, 10) == "speeddebug" then
-        local value = msg:match("speeddebug%s+(%S+)")
-        if value == "on" then
-            addon.db.speedPanelDebug = true
-            print("|cff00ff00GUIT:|r Speed panel debug enabled.")
-        elseif value == "off" then
-            addon.db.speedPanelDebug = false
-            print("|cff00ff00GUIT:|r Speed panel debug disabled.")
-        else
-            print("|cffff0000GUIT:|r Usage: /guit speeddebug on|off")
         end
         return
     end
