@@ -2,6 +2,7 @@
 -- Garage UI Tweaks - Shared Tweak Coordinator
 local addonName, addon = ...
 local FRIENDLY_CLASS_COLOR_CVAR = "nameplateUseClassColorForFriendlyPlayerUnitNames"
+local SIMPLIFIED_TYPES_CVAR = "nameplateSimplifiedTypes"
 
 local function IsFriendlyPlayerUnit(unit)
     if not unit or not UnitExists(unit) then
@@ -389,7 +390,14 @@ function addon:EnsureNameplateHooks()
     eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
     eventFrame:RegisterEvent("PLAYER_GUILD_UPDATE")
     eventFrame:RegisterEvent("CVAR_UPDATE")
+    eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     eventFrame:SetScript("OnEvent", function(_, event, arg1)
+        if event == "PLAYER_REGEN_ENABLED" then
+            -- Picks up a switch that was refused in combat
+            addon:UpdateInstanceSimplifiedNameplates()
+            return
+        end
+
         if event == "NAME_PLATE_UNIT_ADDED" or event == "UNIT_NAME_UPDATE" then
             addon:RefreshSingleNameplate(arg1)
             return
@@ -401,6 +409,7 @@ function addon:EnsureNameplateHooks()
         end
 
         if event == "PLAYER_ENTERING_WORLD" then
+            addon:UpdateInstanceSimplifiedNameplates()
             addon:UpdateFriendlyNameplates()
             return
         end
@@ -422,6 +431,43 @@ function addon:UpdateFriendlyNameplates()
 
     for _, frame in pairs(C_NamePlate.GetNamePlates()) do
         self:ApplyFriendlyNameToFrame(frame)
+    end
+end
+
+-- Friendly nameplates are off limits to addons in these instance types, so the names
+-- drawn above simplified plates never appear there.
+local RESTRICTED_INSTANCE_TYPES = { party = true, raid = true, scenario = true }
+
+-- Turns Blizzard's "simplified" style off for friendly players while inside a restricted
+-- instance, so the default plates show instead, and back on after leaving. The CVar
+-- outlives the session, so the fact that we switched it is saved for the restore.
+function addon:UpdateInstanceSimplifiedNameplates()
+    if not self:IsFeatureSupported("simplifiedNameplateTypes") then
+        return
+    end
+
+    local index = Enum.NamePlateSimplifiedType.FriendlyPlayer
+    local _, instanceType = IsInInstance()
+    local suppress = self.db.nameplateFullFriendlyInInstances and RESTRICTED_INSTANCE_TYPES[instanceType] or false
+
+    local wanted
+    if suppress and not self.db.nameplateSimplifiedFriendlySuppressed then
+        -- Nothing to do when simplified friendly plates are already off
+        if not C_CVar.GetCVarBitfield(SIMPLIFIED_TYPES_CVAR, index) then
+            return
+        end
+        wanted = false
+    elseif not suppress and self.db.nameplateSimplifiedFriendlySuppressed then
+        wanted = true
+    else
+        return
+    end
+
+    pcall(C_CVar.SetCVarBitfield, SIMPLIFIED_TYPES_CVAR, index, wanted)
+
+    -- Only record the switch once it has taken; PLAYER_REGEN_ENABLED retries otherwise
+    if (C_CVar.GetCVarBitfield(SIMPLIFIED_TYPES_CVAR, index) or false) == wanted then
+        self.db.nameplateSimplifiedFriendlySuppressed = not wanted or nil
     end
 end
 

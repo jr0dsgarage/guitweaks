@@ -64,6 +64,7 @@ local defaults = {
         nameplateUseClassColorForFriendlyPlayerUnitNames = false,
         nameplateFriendlyNamesEnabled = true,
         nameplateFriendlyNamesShowGuild = false,
+        nameplateFullFriendlyInInstances = false,
         nameplateFriendlyScale = 1.0,
         nameplateFriendlyNameFont = "Fonts\\FRIZQT__.TTF",
         nameplateFriendlyNameSize = 13,

@@ -446,6 +446,12 @@ function addon:CreateSettingsPanel()
         addon.db.extendDefaultChatPane = self:GetChecked()
         addon:UpdateChatPaneExtend()
     end)
+    if not addon:IsFeatureSupported("chatPaneExtend") then
+        -- Last row of the section, so the section just gets shorter
+        extendChatPane:Hide()
+        chatPanel:SetHeight(chatPanel:GetHeight() - 34)
+        tabChat.totalHeight = tabChat.totalHeight - 34
+    end
 
     -- Chat Frame Button Background
     local chatButtonBG, chatButtonTitle = CreateSection(tabChat, "Chat Frame Buttons", "Hide the minimize button, background and borders on chat frames.", 200)
@@ -904,7 +910,7 @@ function addon:CreateSettingsPanel()
     -- ====================
     -- NAMEPLATE TAB CONTENT
     -- ====================
-    local npFriendlyPanel, npFriendlyTitle = CreateSection(tabNameplates, "Friendly Simplified Names", "Render readable names above simplified friendly player nameplates.", 560)
+    local npFriendlyPanel, npFriendlyTitle = CreateSection(tabNameplates, "Friendly Simplified Names", "Render readable names above simplified friendly player nameplates.", 590)
 
     -- Every control in this section shares the title's left edge. Dropdowns are pulled
     -- 16px left because the template pads its visible box by that much.
@@ -961,6 +967,30 @@ function addon:CreateSettingsPanel()
         addon.db.nameplateFriendlyScale = value
         addon:UpdateFriendlyNameplates()
     end)
+
+    -- Sits between the class colour checkbox and the scale slider; scoped to stay under the local limit
+    do
+        local npFullInInstances = CreateFrame("CheckButton", nil, npFriendlyPanel, "InterfaceOptionsCheckButtonTemplate")
+        npFullInInstances:SetPoint("TOPLEFT", npClassColor, "BOTTOMLEFT", 0, -4)
+        npFullInInstances.Text:SetText("Use Default Friendly Nameplates in Instances")
+        npFullInInstances:SetChecked(addon.db.nameplateFullFriendlyInInstances == true)
+        npFullInInstances:SetScript("OnClick", function(self)
+            addon.db.nameplateFullFriendlyInInstances = self:GetChecked()
+            addon:UpdateInstanceSimplifiedNameplates()
+        end)
+        npFullInInstances:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText("Addons can't draw on friendly nameplates in dungeons, raids and scenarios, so simplified plates show no names there. This turns simplified friendly player nameplates off while you are inside one and back on when you leave.", nil, nil, nil, nil, true)
+            GameTooltip:Show()
+        end)
+        npFullInInstances:SetScript("OnLeave", GameTooltip_Hide)
+
+        if addon:IsFeatureSupported("simplifiedNameplateTypes") then
+            npFriendlyScale:SetPoint("TOPLEFT", npFullInInstances, "BOTTOMLEFT", 0, -28)
+        else
+            npFullInInstances:Hide()
+        end
+    end
 
     local fontLabel = npFriendlyPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     fontLabel:SetPoint("TOPLEFT", npFriendlyScale, "BOTTOMLEFT", 0, -24)
