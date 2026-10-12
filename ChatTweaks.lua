@@ -520,6 +520,7 @@ local hookedTabs = {}
 local tabsRevealed = false -- true while hover temporarily shows hidden tabs
 local TAB_STRIP_HEIGHT = 30 -- how far above a chat frame counts as the tab area
 local HOVER_POLL_INTERVAL = 0.1
+local HOVER_HIDE_DELAY = 1 -- seconds the tabs stay after the mouse leaves
 
 local function TabsShouldHide()
     return addon.db.hideChatTabs and not tabsRevealed
@@ -539,15 +540,36 @@ local function IsMouseOverChatArea()
     return false
 end
 
+-- A tab's right-click menu closes with its tab, so an open menu holds the tabs in place
+local function IsContextMenuOpen()
+    if Menu and Menu.GetManager then
+        local manager = Menu.GetManager()
+        if manager and manager.GetOpenMenu and manager:GetOpenMenu() then
+            return true
+        end
+    end
+    return DropDownList1 ~= nil and DropDownList1:IsShown()
+end
+
 local hoverWatcher = CreateFrame("Frame")
 hoverWatcher:Hide()
 local hoverElapsed = 0
+local hoverLastOver = 0
 hoverWatcher:SetScript("OnUpdate", function(_, elapsed)
     hoverElapsed = hoverElapsed + elapsed
     if hoverElapsed < HOVER_POLL_INTERVAL then return end
     hoverElapsed = 0
 
+    local now = GetTime()
     local over = IsMouseOverChatArea()
+    if over or (tabsRevealed and IsContextMenuOpen()) then
+        hoverLastOver = now
+        over = true
+    elseif tabsRevealed and now - hoverLastOver < HOVER_HIDE_DELAY then
+        -- Linger briefly so the mouse can leave and come back
+        over = true
+    end
+
     if over ~= tabsRevealed then
         tabsRevealed = over
         addon:UpdateChatTabs()

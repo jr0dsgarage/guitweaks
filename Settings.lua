@@ -3,6 +3,65 @@
 local addonName, addon = ...
 local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 
+-- Puts a slider's label flush left above the track and an editable value box flush
+-- right, so an exact number can be typed. The box shows value * scale to the given
+-- number of decimals (scale 100 turns a 0-1 setting into a percentage).
+-- Adds slider:ShowValue(value) for the slider's OnValueChanged handler to call.
+local function AttachValueBox(slider, labelText, decimals, scale)
+    scale = scale or 1
+    local fmt = "%." .. (decimals or 0) .. "f"
+    local shown = slider:GetValue()
+
+    local box = CreateFrame("EditBox", nil, slider, "InputBoxTemplate")
+    box:SetSize(50, 20)
+    box:SetPoint("BOTTOMRIGHT", slider, "TOPRIGHT", 0, 0)
+    box:SetAutoFocus(false)
+    box:SetJustifyH("CENTER")
+    box:SetMaxLetters(6)
+
+    local label = slider.Text
+    label:SetText(labelText)
+    label:ClearAllPoints()
+    label:SetPoint("BOTTOMLEFT", slider, "TOPLEFT", 0, 4)
+    label:SetPoint("RIGHT", box, "LEFT", -10, 0)
+    label:SetJustifyH("LEFT")
+    label:SetWordWrap(false)
+
+    local function ShowStored()
+        box:SetText(string.format(fmt, shown * scale))
+        box:SetCursorPosition(0)
+    end
+    ShowStored()
+
+    function slider:ShowValue(value)
+        shown = value
+        if not box:HasFocus() then ShowStored() end
+    end
+
+    box:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    box:SetScript("OnEscapePressed", function(self)
+        ShowStored()
+        self:ClearFocus()
+    end)
+    box:SetScript("OnEditFocusLost", function(self)
+        local num = tonumber(self:GetText())
+        if num then
+            local minVal, maxVal = slider:GetMinMaxValues()
+            slider:SetValue(math.max(minVal, math.min(maxVal, num / scale)))
+        end
+        -- Re-show the stored value: covers invalid input, clamping, and rounding.
+        ShowStored()
+    end)
+
+    -- The box follows the slider when it is disabled.
+    hooksecurefunc(slider, "SetEnabled", function(_, enabled)
+        if not enabled then box:ClearFocus() end
+        box:SetEnabled(enabled)
+        local c = enabled and 1 or 0.5
+        box:SetTextColor(c, c, c)
+    end)
+end
+
 -- Create the settings panel for Interface Options
 function addon:CreateSettingsPanel()
     local panel = CreateFrame("Frame", "GarageUITweaksOptionsPanel", UIParent)
@@ -150,7 +209,7 @@ function addon:CreateSettingsPanel()
     -- ====================
     
     -- Error Text Background
-    local errorBG, errorTitle = CreateSection(tabGeneral, "Error Text Background", "Draws a backdrop behind UI errors briefly to improve visibility.", 170)
+    local errorBG, errorTitle = CreateSection(tabGeneral, "Error Text Background", "Draws a backdrop behind UI errors briefly to improve visibility.", 174)
     
     local errorCheckbox = CreateFrame("CheckButton", nil, errorBG, "InterfaceOptionsCheckButtonTemplate")
     errorCheckbox:SetPoint("TOPLEFT", errorTitle, "BOTTOMLEFT", 0, -12)
@@ -166,10 +225,10 @@ function addon:CreateSettingsPanel()
     alphaSlider:SetWidth(220)
     alphaSlider.Low:SetText("0%")
     alphaSlider.High:SetText("100%")
-    alphaSlider.Text:SetText(string.format("Opacity: %.0f%%", (addon.db.errorTextBackgroundAlpha or 0.7) * 100))
+    AttachValueBox(alphaSlider, "Opacity (%)", 0, 100)
 
     local durationSlider = CreateFrame("Slider", nil, errorBG, "OptionsSliderTemplate")
-    durationSlider:SetPoint("TOPLEFT", alphaSlider, "BOTTOMLEFT", 0, -28)
+    durationSlider:SetPoint("TOPLEFT", alphaSlider, "BOTTOMLEFT", 0, -32)
     durationSlider:SetWidth(200)
     durationSlider:SetMinMaxValues(1, 5)
     durationSlider:SetValue(addon.db.errorTextBackgroundDuration or 3.0)
@@ -177,7 +236,7 @@ function addon:CreateSettingsPanel()
     durationSlider:SetObeyStepOnDrag(true)
     durationSlider.Low:SetText("1s")
     durationSlider.High:SetText("5s")
-    durationSlider.Text:SetText(string.format("Duration: %.1fs", addon.db.errorTextBackgroundDuration or 3.0))
+    AttachValueBox(durationSlider, "Duration (s)", 1)
 
     errorCheckbox:SetScript("OnClick", function(self)
         addon.db.errorTextBackgroundEnabled = self:GetChecked()
@@ -188,14 +247,14 @@ function addon:CreateSettingsPanel()
 
     alphaSlider:SetScript("OnValueChanged", function(self, value)
         value = math.floor(value * 20 + 0.5) / 20
-        self.Text:SetText(string.format("Opacity: %.0f%%", value * 100))
+        self:ShowValue(value)
         addon.db.errorTextBackgroundAlpha = value
         addon:SetErrorTextBackground(addon.db.errorTextBackgroundEnabled, addon.db.errorTextBackgroundAlpha, addon.db.errorTextBackgroundDuration)
     end)
     
     durationSlider:SetScript("OnValueChanged", function(self, value)
         value = math.floor(value * 10 + 0.5) / 10
-        self.Text:SetText(string.format("Duration: %.1fs", value))
+        self:ShowValue(value)
         addon.db.errorTextBackgroundDuration = value
         addon:SetErrorTextBackground(addon.db.errorTextBackgroundEnabled, addon.db.errorTextBackgroundAlpha, addon.db.errorTextBackgroundDuration)
     end)
@@ -213,10 +272,10 @@ function addon:CreateSettingsPanel()
     overrideYSlider:SetWidth(400)
     overrideYSlider.Low:SetText("0")
     overrideYSlider.High:SetText("300")
-    overrideYSlider.Text:SetText(string.format("Y Offset: %d", addon.db.overrideActionBarYOffset or 0))
+    AttachValueBox(overrideYSlider, "Y Offset")
     overrideYSlider:SetScript("OnValueChanged", function(self, value)
         value = math.floor(value)
-        self.Text:SetText(string.format("Y Offset: %d", value))
+        self:ShowValue(value)
         addon.db.overrideActionBarYOffset = value
         addon:UpdateOverrideActionBar()
     end)
@@ -282,10 +341,10 @@ function addon:CreateSettingsPanel()
     scaleSlider:SetValueStep(0.1)
     scaleSlider:SetObeyStepOnDrag(true)
     scaleSlider:SetWidth(200)
-    scaleSlider.Text:SetText(string.format("Scale: %.0f%%", (addon.db.battlegroundMapScale or 1.0) * 100))
+    AttachValueBox(scaleSlider, "Scale (%)", 0, 100)
     scaleSlider:SetScript("OnValueChanged", function(self, value)
         value = math.floor(value * 10 + 0.5) / 10
-        self.Text:SetText(string.format("Scale: %.0f%%", value * 100))
+        self:ShowValue(value)
         addon.db.battlegroundMapScale = value
         addon:ApplyTweaks()
     end)
@@ -353,10 +412,10 @@ function addon:CreateSettingsPanel()
     topCenterWidgetSlider:SetWidth(400)
     topCenterWidgetSlider.Low:SetText("0")
     topCenterWidgetSlider.High:SetText("100")
-    topCenterWidgetSlider.Text:SetText(string.format("Offset: %d", addon.db.topCenterWidgetOffset or 0))
+    AttachValueBox(topCenterWidgetSlider, "Offset")
     topCenterWidgetSlider:SetScript("OnValueChanged", function(self, value)
         value = math.floor(value)
-        self.Text:SetText(string.format("Offset: %d", value))
+        self:ShowValue(value)
         addon.db.topCenterWidgetOffset = value
         addon:ApplyTopCenterWidgetOffset(value)
     end)
@@ -396,10 +455,10 @@ function addon:CreateSettingsPanel()
     widthSlider:SetWidth(400)
     widthSlider.Low:SetText("200")
     widthSlider.High:SetText("1000")
-    widthSlider.Text:SetText(string.format("Width: %d", addon.db.chatEditBoxWidth or 450))
+    AttachValueBox(widthSlider, "Width")
     widthSlider:SetScript("OnValueChanged", function(self, value)
         value = math.floor(value)
-        self.Text:SetText(string.format("Width: %d", value))
+        self:ShowValue(value)
         addon.db.chatEditBoxWidth = value
         addon:UpdateChatEditBox()
     end)
@@ -719,9 +778,9 @@ function addon:CreateSettingsPanel()
     -- Width / Height Inputs
     local lblDimensions = bgPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     lblDimensions:SetPoint("TOPLEFT", lblBGColor, "BOTTOMLEFT", 0, -20)
-    lblDimensions:SetText("Dimensions (Width x Height)")
+    lblDimensions:SetText("Dimensions")
 
-    -- Shared setter for edit boxes and sliders; refreshes every dimension control
+    -- Setter for the dimension sliders; refreshes every dimension control
     local function SetBGDimension(key, value)
         value = math.max(16, math.floor((tonumber(value) or 0) + 0.5))
         if addon.db[key] == value then return end
@@ -729,36 +788,6 @@ function addon:CreateSettingsPanel()
         addon:UpdateBackgroundPanel()
         addon:RefreshSettings("background")
     end
-
-    local function CreateDimensionEdit(key)
-        local edit = CreateFrame("EditBox", nil, bgPanel, "InputBoxTemplate")
-        edit:SetSize(60, 20)
-        edit:SetAutoFocus(false)
-        edit:SetNumeric(true)
-        edit:SetScript("OnEnterPressed", function(self)
-            local value = self:GetNumber()
-            self:ClearFocus()
-            SetBGDimension(key, value)
-        end)
-        edit:SetScript("OnEscapePressed", function(self)
-            self:ClearFocus()
-            addon:RefreshSettings("background")
-        end)
-        edit:SetScript("OnEditFocusLost", function()
-            addon:RefreshSettings("background")
-        end)
-        return edit
-    end
-
-    local editWidth = CreateDimensionEdit("backgroundPanelWidth")
-    editWidth:SetPoint("LEFT", lblDimensions, "RIGHT", 10, 0)
-
-    local lblX = bgPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    lblX:SetPoint("LEFT", editWidth, "RIGHT", 5, 0)
-    lblX:SetText("x")
-
-    local editHeight = CreateDimensionEdit("backgroundPanelHeight")
-    editHeight:SetPoint("LEFT", lblX, "RIGHT", 5, 0)
 
     -- Width / Height Sliders (max is the screen size)
     local bgRefreshing = false
@@ -769,9 +798,9 @@ function addon:CreateSettingsPanel()
         slider:SetValueStep(1)
         slider:SetObeyStepOnDrag(true)
         slider.Low:SetText("16")
-        slider.label = label
+        AttachValueBox(slider, label)
         slider:SetScript("OnValueChanged", function(self, value)
-            self.Text:SetText(string.format("%s: %d", label, math.floor(value + 0.5)))
+            self:ShowValue(math.floor(value + 0.5))
             if not bgRefreshing then
                 SetBGDimension(key, value)
             end
@@ -849,16 +878,14 @@ function addon:CreateSettingsPanel()
         addon:RefreshSettings("background")
     end)
 
-    local function SetDimensionControlEnabled(edit, slider, enabled)
-        edit:SetEnabled(enabled)
-        edit:SetTextColor(enabled and 1 or 0.5, enabled and 1 or 0.5, enabled and 1 or 0.5)
+    local function SetDimensionControlEnabled(slider, enabled)
         slider:SetEnabled(enabled)
         slider:SetAlpha(enabled and 1 or 0.5)
     end
 
     -- Listener for external updates (e.g. drag resizing)
     function addon:RefreshSettings(module)
-        if module ~= "background" or not editWidth:IsVisible() then return end
+        if module ~= "background" or not sliderWidth:IsVisible() then return end
         local db = addon.db
 
         -- Always show the panel's real size (screen size when forced)
@@ -870,9 +897,6 @@ function addon:CreateSettingsPanel()
         w, h = math.floor(w + 0.5), math.floor(h + 0.5)
         local sw, sh = math.floor(GetScreenWidth() + 0.5), math.floor(GetScreenHeight() + 0.5)
 
-        if not editWidth:HasFocus() then editWidth:SetNumber(w) end
-        if not editHeight:HasFocus() then editHeight:SetNumber(h) end
-
         bgRefreshing = true
         sliderWidth:SetMinMaxValues(16, math.max(sw, w))
         sliderWidth.High:SetText(sw)
@@ -882,8 +906,8 @@ function addon:CreateSettingsPanel()
         sliderHeight:SetValue(h)
         bgRefreshing = false
 
-        SetDimensionControlEnabled(editWidth, sliderWidth, not db.backgroundPanelForceWidth)
-        SetDimensionControlEnabled(editHeight, sliderHeight, not db.backgroundPanelForceHeight)
+        SetDimensionControlEnabled(sliderWidth, not db.backgroundPanelForceWidth)
+        SetDimensionControlEnabled(sliderHeight, not db.backgroundPanelForceHeight)
 
         chkBGEnable:SetChecked(db.backgroundPanelEnabled)
         chkBGLock:SetChecked(db.backgroundPanelLocked)
@@ -960,10 +984,10 @@ function addon:CreateSettingsPanel()
     npFriendlyScale.Low:SetText("50%")
     npFriendlyScale.High:SetText("300%")
     npFriendlyScale:SetValue(addon.db.nameplateFriendlyScale or 1.0)
-    npFriendlyScale.Text:SetText(string.format("Friendly Nameplate Scale: %.0f%%", (addon.db.nameplateFriendlyScale or 1.0) * 100))
+    AttachValueBox(npFriendlyScale, "Nameplate Scale (%)", 0, 100)
     npFriendlyScale:SetScript("OnValueChanged", function(self, value)
         value = math.floor(value * 20 + 0.5) / 20
-        self.Text:SetText(string.format("Friendly Nameplate Scale: %.0f%%", value * 100))
+        self:ShowValue(value)
         addon.db.nameplateFriendlyScale = value
         addon:UpdateFriendlyNameplates()
     end)
@@ -1349,11 +1373,11 @@ function addon:CreateSettingsPanel()
     sizeSlider.Low:SetText("8")
     sizeSlider.High:SetText("64")
     sizeSlider:SetValue(addon.db.nameplateFriendlyNameSize or 13)
-    sizeSlider.Text:SetText(string.format("Font Size: %d", addon.db.nameplateFriendlyNameSize or 13))
+    AttachValueBox(sizeSlider, "Font Size")
     sizeSlider:SetScript("OnValueChanged", function(self, value)
         value = math.floor(value + 0.5)
         addon.db.nameplateFriendlyNameSize = value
-        self.Text:SetText(string.format("Font Size: %d", value))
+        self:ShowValue(value)
         if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
     end)
 
@@ -1366,11 +1390,11 @@ function addon:CreateSettingsPanel()
     xSlider.Low:SetText("-100")
     xSlider.High:SetText("100")
     xSlider:SetValue(addon.db.nameplateFriendlyNameOffsetX or 0)
-    xSlider.Text:SetText(string.format("X Offset: %d", addon.db.nameplateFriendlyNameOffsetX or 0))
+    AttachValueBox(xSlider, "X Offset")
     xSlider:SetScript("OnValueChanged", function(self, value)
         value = math.floor(value + 0.5)
         addon.db.nameplateFriendlyNameOffsetX = value
-        self.Text:SetText(string.format("X Offset: %d", value))
+        self:ShowValue(value)
         if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
     end)
 
@@ -1383,11 +1407,11 @@ function addon:CreateSettingsPanel()
     ySlider.Low:SetText("-100")
     ySlider.High:SetText("100")
     ySlider:SetValue(addon.db.nameplateFriendlyNameOffsetY or 10)
-    ySlider.Text:SetText(string.format("Y Offset: %d", addon.db.nameplateFriendlyNameOffsetY or 10))
+    AttachValueBox(ySlider, "Y Offset")
     ySlider:SetScript("OnValueChanged", function(self, value)
         value = math.floor(value + 0.5)
         addon.db.nameplateFriendlyNameOffsetY = value
-        self.Text:SetText(string.format("Y Offset: %d", value))
+        self:ShowValue(value)
         if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
     end)
 
@@ -1448,7 +1472,7 @@ function addon:CreateSettingsPanel()
         cdMouseDurationSlider:SetObeyStepOnDrag(true)
         cdMouseDurationSlider.Low:SetText("1s")
         cdMouseDurationSlider.High:SetText("10s")
-        cdMouseDurationSlider.Text:SetText(string.format("Duration: %.1fs", addon.db.cooldownAtMouseDuration or 3.0))
+        AttachValueBox(cdMouseDurationSlider, "Duration (s)", 1)
 
         local cdMouseOffsetSlider = CreateFrame("Slider", nil, cdMouseGroup, "OptionsSliderTemplate")
         cdMouseOffsetSlider:SetPoint("TOPLEFT", cdMouseDurationSlider, "BOTTOMLEFT", 0, -36)
@@ -1459,10 +1483,10 @@ function addon:CreateSettingsPanel()
         cdMouseOffsetSlider:SetObeyStepOnDrag(true)
         cdMouseOffsetSlider.Low:SetText("0")
         cdMouseOffsetSlider.High:SetText("300")
-        cdMouseOffsetSlider.Text:SetText(string.format("Offset Distance: %d", addon.db.cooldownAtMouseOffset or 40))
+        AttachValueBox(cdMouseOffsetSlider, "Offset Distance")
         cdMouseOffsetSlider:SetScript("OnValueChanged", function(self, value)
             value = math.floor(value + 0.5)
-            self.Text:SetText(string.format("Offset Distance: %d", value))
+            self:ShowValue(value)
             addon.db.cooldownAtMouseOffset = value
         end)
 
@@ -1475,16 +1499,16 @@ function addon:CreateSettingsPanel()
         cdMouseAngleSlider:SetObeyStepOnDrag(true)
         cdMouseAngleSlider.Low:SetText("0 (above)")
         cdMouseAngleSlider.High:SetText("355")
-        cdMouseAngleSlider.Text:SetText(string.format("Offset Rotation: %d", addon.db.cooldownAtMouseAngle or 90))
+        AttachValueBox(cdMouseAngleSlider, "Offset Rotation")
         cdMouseAngleSlider:SetScript("OnValueChanged", function(self, value)
             value = math.floor(value / 5 + 0.5) * 5
-            self.Text:SetText(string.format("Offset Rotation: %d", value))
+            self:ShowValue(value)
             addon.db.cooldownAtMouseAngle = value
         end)
 
         cdMouseDurationSlider:SetScript("OnValueChanged", function(self, value)
             value = math.floor(value * 2 + 0.5) / 2
-            self.Text:SetText(string.format("Duration: %.1fs", value))
+            self:ShowValue(value)
             addon.db.cooldownAtMouseDuration = value
         end)
 
@@ -1497,10 +1521,10 @@ function addon:CreateSettingsPanel()
         cdMouseSizeSlider:SetObeyStepOnDrag(true)
         cdMouseSizeSlider.Low:SetText("8")
         cdMouseSizeSlider.High:SetText("72")
-        cdMouseSizeSlider.Text:SetText(string.format("Font Size: %d", addon.db.cooldownAtMouseFontSize or 22))
+        AttachValueBox(cdMouseSizeSlider, "Font Size")
         cdMouseSizeSlider:SetScript("OnValueChanged", function(self, value)
             value = math.floor(value + 0.5)
-            self.Text:SetText(string.format("Font Size: %d", value))
+            self:ShowValue(value)
             addon.db.cooldownAtMouseFontSize = value
             addon:UpdateCooldownAtMouseFont()
         end)
@@ -1571,9 +1595,10 @@ function addon:CreateSettingsPanel()
         sizeSlider:SetObeyStepOnDrag(true)
         sizeSlider.Low:SetText("8")
         sizeSlider.High:SetText("32")
+        AttachValueBox(sizeSlider, "Font Size")
         sizeSlider:SetScript("OnValueChanged", function(self, value)
             value = math.floor(value + 0.5)
-            self.Text:SetText(string.format("Font Size: %d", value))
+            self:ShowValue(value)
             if not refreshing then
                 addon:SetChatFontOverride(selectedWindow, "size", value)
             end
@@ -1743,10 +1768,10 @@ function addon:CreateSettingsPanel()
         sizeSlider.Low:SetText("8")
         sizeSlider.High:SetText("40")
         sizeSlider:SetValue(addon.db.speedPanelFontSize or 16)
-        sizeSlider.Text:SetText(string.format("Font Size: %d", addon.db.speedPanelFontSize or 16))
+        AttachValueBox(sizeSlider, "Font Size")
         sizeSlider:SetScript("OnValueChanged", function(self, value)
             value = math.floor(value + 0.5)
-            self.Text:SetText(string.format("Font Size: %d", value))
+            self:ShowValue(value)
             addon.db.speedPanelFontSize = value
             Apply()
         end)
