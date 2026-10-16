@@ -17,4 +17,5 @@ ChatTweaks.lua
 Tweaks.lua
 RaidPartyFrames.lua
 BackgroundPanel.lua
+SettingsWidgets.lua
 Settings.lua
