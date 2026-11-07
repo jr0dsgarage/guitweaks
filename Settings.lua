@@ -2,6 +2,31 @@
 -- Garage UI Tweaks Settings
 local addonName, addon = ...
 local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+local W = addon.SettingsWidgets
+
+-- Slider with the Settings panel's stepper arrows and a typeable value (see SettingsWidgets.lua).
+-- Stores into addon.db[dbKey] and then runs apply(value), if given.
+local function CreateDBSlider(parent, label, dbKey, default, minVal, maxVal, step, width, decimals, scale, apply)
+    return W.CreateSlider(parent, {
+        label = label, min = minVal, max = maxVal, step = step, width = width,
+        decimals = decimals, scale = scale,
+        value = addon.db[dbKey] or default,
+        onChange = function(value)
+            addon.db[dbKey] = value
+            if apply then apply(value) end
+        end,
+    })
+end
+
+-- Dropdown over { text, value } choices, stored in addon.db[dbKey].
+local function CreateDBChoiceDropdown(parent, width, options, dbKey, default, apply)
+    return W.CreateChoiceDropdown(parent, width, options,
+        function() return addon.db[dbKey] or default end,
+        function(value)
+            addon.db[dbKey] = value
+            if apply then apply(value) end
+        end)
+end
 
 -- Create the settings panel for Interface Options
 function addon:CreateSettingsPanel()
@@ -19,8 +44,9 @@ function addon:CreateSettingsPanel()
     desc:SetText("Configure your UI tweaks below.")
     
     -- Enable checkbox (Global)
-    local enabledCheckbox = CreateFrame("CheckButton", nil, panel, "InterfaceOptionsCheckButtonTemplate")
+    local enabledCheckbox = W.CreateCheckbox(panel)
     enabledCheckbox:SetPoint("TOPLEFT", desc, "BOTTOMLEFT", 0, -12)
+    W.AttachHover(enabledCheckbox)
     enabledCheckbox.Text:SetText("Enable Garage UI Tweaks")
     enabledCheckbox:SetChecked(addon.db.enabled)
     enabledCheckbox:SetScript("OnClick", function(self)
@@ -52,9 +78,9 @@ function addon:CreateSettingsPanel()
         descText:SetJustifyH("LEFT")
         descText:SetText(pageDescription or "")
 
-        local scrollFrame = CreateFrame("ScrollFrame", nil, page, "UIPanelScrollFrameTemplate")
+        local scrollFrame = W.CreateScrollFrame(page)
         scrollFrame:SetPoint("TOPLEFT", descText, "BOTTOMLEFT", 0, -12)
-        scrollFrame:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -32, 12)
+        scrollFrame:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -20, 12)
 
         local scrollChild = CreateFrame("Frame", nil, scrollFrame)
         scrollChild:SetHeight(1)
@@ -80,6 +106,7 @@ function addon:CreateSettingsPanel()
             scrollChild = scrollChild,
             totalHeight = 0,
             lastSection = nil,
+            visibleSections = 0,
         }
 
         table.insert(orderedPages, pageInfo)
@@ -88,16 +115,17 @@ function addon:CreateSettingsPanel()
 
     -- Page Definitions
     local tabGeneral = CreateSettingsPage("general", "General Tweaks", "Core quality-of-life improvements and shared behavior.")
-    local tabFrameAdjustments = CreateSettingsPage("frameadjustments", "Frame Adjustments", "Adjust frame strata and status tracking positioning.")
+    local tabFrameAdjustments = CreateSettingsPage("frameadjustments", "Frame Tweaks", "Adjust frame strata and status tracking positioning.")
     local tabChat = CreateSettingsPage("chat", "Chat Tweaks", "Customize chat behavior and chat frame controls.")
-    local tabSpeed = CreateSettingsPage("speed", "Speed Tweaks", "Configure movement speed display options.")
-    local tabPRD = CreateSettingsPage("prd", "PRD Tweaks", "Manage Personal Resource Display appearance and behavior.")
-    local tabNameplates = CreateSettingsPage("nameplates", "Nameplate Tweaks", "Configure friendly nameplate appearance and scaling.")
-    local tabBackground = CreateSettingsPage("background", "Background", "Background panel and visual backdrop options.")
-    local tabCrafting = CreateSettingsPage("crafting", "Crafting Tweaks", "Crafting-specific UI tweaks and persistence options.")
+    local tabSpeed = CreateSettingsPage("speed", "Speed Panel Tweaks", "Configure movement speed display options.")
+    local tabCooldowns = CreateSettingsPage("cooldowns", "Cooldown Tweaks", "Configure cooldown display options.")
+    local tabNameplates = CreateSettingsPage("nameplates", "Nameplate Tweaks", "Configure friendly nameplate appearance.")
+    local tabBackground = CreateSettingsPage("background", "Background Panel Tweaks", "Background panel and visual backdrop options.")
 
     -- Helper to add sections to a tab
-    local function CreateSection(tab, titleText, descriptionText, height)
+    -- featureID (optional): a Compat.lua feature; when the client can't support it the
+    -- section is still built, so the control code below it runs, but left out of the layout.
+    local function CreateSection(tab, titleText, descriptionText, height, featureID)
         local parent = tab.scrollChild
         local section = CreateFrame("Frame", nil, parent, "BackdropTemplate")
         section:SetBackdrop({
@@ -108,16 +136,20 @@ function addon:CreateSettingsPanel()
         })
         section:SetBackdropColor(0.1, 0.1, 0.1, 0.4)
         section:SetBackdropBorderColor(0.4, 0.4, 0.4, 0.8)
+        section:SetHeight(height)
 
-        if tab.lastSection then
+        local supported = not featureID or addon:IsFeatureSupported(featureID)
+        if not supported then
+            section:Hide()
+        elseif tab.lastSection then
             section:SetPoint("TOPLEFT", tab.lastSection, "BOTTOMLEFT", 0, -16)
+            section:SetPoint("RIGHT", parent, "RIGHT", -4, 0)
             tab.totalHeight = tab.totalHeight + 16
         else
             section:SetPoint("TOPLEFT", parent, "TOPLEFT", 4, -4)
+            section:SetPoint("RIGHT", parent, "RIGHT", -4, 0)
             tab.totalHeight = tab.totalHeight + 4
         end
-        section:SetPoint("RIGHT", parent, "RIGHT", -4, 0)
-        section:SetHeight(height)
 
         local title = section:CreateFontString(nil, "ARTWORK", "GameFontNormal")
         title:SetPoint("TOPLEFT", 10, -12) -- Adjusted padding to match Knack's padding roughly
@@ -129,9 +161,12 @@ function addon:CreateSettingsPanel()
         desc:SetJustifyH("LEFT")
         desc:SetText(descriptionText)
 
-        tab.lastSection = section
-        tab.totalHeight = tab.totalHeight + height
-        parent:SetHeight(math.max(tab.totalHeight, 100))
+        if supported then
+            tab.lastSection = section
+            tab.visibleSections = tab.visibleSections + 1
+            tab.totalHeight = tab.totalHeight + height
+            parent:SetHeight(math.max(tab.totalHeight, 100))
+        end
 
         return section, title, desc
     end
@@ -141,82 +176,48 @@ function addon:CreateSettingsPanel()
     -- ====================
     
     -- Error Text Background
-    local errorBG, errorTitle = CreateSection(tabGeneral, "Error Text Background", "Draws a backdrop behind UI errors briefly to improve visibility.", 170)
+    local errorBG, errorTitle = CreateSection(tabGeneral, "Error Text Background", "Draws a backdrop behind UI errors briefly to improve visibility.", 174)
     
-    local errorCheckbox = CreateFrame("CheckButton", nil, errorBG, "InterfaceOptionsCheckButtonTemplate")
+    local errorCheckbox = W.CreateCheckbox(errorBG)
     errorCheckbox:SetPoint("TOPLEFT", errorTitle, "BOTTOMLEFT", 0, -12)
+    W.AttachHover(errorCheckbox, { body = "Draws a dark backdrop behind the red error messages at the top of the screen, such as \"Not enough rage\", so they're easier to read." })
     errorCheckbox.Text:SetText("Enable Background")
     errorCheckbox:SetChecked(addon.db.errorTextBackgroundEnabled)
 
-    local alphaSlider = CreateFrame("Slider", nil, errorBG, "OptionsSliderTemplate")
-    alphaSlider:SetPoint("TOPLEFT", errorCheckbox, "BOTTOMLEFT", 0, -28)
-    alphaSlider:SetMinMaxValues(0, 1)
-    alphaSlider:SetValue(addon.db.errorTextBackgroundAlpha or 0.7)
-    alphaSlider:SetValueStep(0.05)
-    alphaSlider:SetObeyStepOnDrag(true)
-    alphaSlider:SetWidth(220)
-    alphaSlider.Low:SetText("0%")
-    alphaSlider.High:SetText("100%")
-    alphaSlider.Text:SetText(string.format("Opacity: %.0f%%", (addon.db.errorTextBackgroundAlpha or 0.7) * 100))
+    local function ApplyErrorBackground()
+        addon:SetErrorTextBackground(addon.db.errorTextBackgroundEnabled, addon.db.errorTextBackgroundAlpha, addon.db.errorTextBackgroundDuration)
+    end
 
-    local durationSlider = CreateFrame("Slider", nil, errorBG, "OptionsSliderTemplate")
-    durationSlider:SetPoint("TOPLEFT", alphaSlider, "BOTTOMLEFT", 0, -28)
-    durationSlider:SetWidth(200)
-    durationSlider:SetMinMaxValues(1, 5)
-    durationSlider:SetValue(addon.db.errorTextBackgroundDuration or 3.0)
-    durationSlider:SetValueStep(0.1)
-    durationSlider:SetObeyStepOnDrag(true)
-    durationSlider.Low:SetText("1s")
-    durationSlider.High:SetText("5s")
-    durationSlider.Text:SetText(string.format("Duration: %.1fs", addon.db.errorTextBackgroundDuration or 3.0))
+    local alphaSlider = CreateDBSlider(errorBG, "Opacity (%)", "errorTextBackgroundAlpha", 0.7, 0, 1, 0.05, 220, 0, 100, ApplyErrorBackground)
+    alphaSlider:SetPoint("TOPLEFT", errorCheckbox, "BOTTOMLEFT", 0, -28)
+    W.AttachHover(alphaSlider, { body = "How solid the backdrop behind error messages is." })
+
+    local durationSlider = CreateDBSlider(errorBG, "Duration (s)", "errorTextBackgroundDuration", 3.0, 1, 5, 0.1, 200, 1, nil, ApplyErrorBackground)
+    durationSlider:SetPoint("TOPLEFT", alphaSlider, "BOTTOMLEFT", 0, -32)
+    W.AttachHover(durationSlider, { body = "How long the backdrop stays after an error message appears, in seconds." })
 
     errorCheckbox:SetScript("OnClick", function(self)
         addon.db.errorTextBackgroundEnabled = self:GetChecked()
-        addon:SetErrorTextBackground(addon.db.errorTextBackgroundEnabled, addon.db.errorTextBackgroundAlpha, addon.db.errorTextBackgroundDuration)
+        ApplyErrorBackground()
         alphaSlider:SetEnabled(addon.db.errorTextBackgroundEnabled)
         durationSlider:SetEnabled(addon.db.errorTextBackgroundEnabled)
-    end)
-
-    alphaSlider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value * 20 + 0.5) / 20
-        self.Text:SetText(string.format("Opacity: %.0f%%", value * 100))
-        addon.db.errorTextBackgroundAlpha = value
-        addon:SetErrorTextBackground(addon.db.errorTextBackgroundEnabled, addon.db.errorTextBackgroundAlpha, addon.db.errorTextBackgroundDuration)
-    end)
-    
-    durationSlider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value * 10 + 0.5) / 10
-        self.Text:SetText(string.format("Duration: %.1fs", value))
-        addon.db.errorTextBackgroundDuration = value
-        addon:SetErrorTextBackground(addon.db.errorTextBackgroundEnabled, addon.db.errorTextBackgroundAlpha, addon.db.errorTextBackgroundDuration)
     end)
 
 
     -- Override Action Bar
     local overrideBarGroup, overrideBarTitle = CreateSection(tabGeneral, "Override Action Bar", "Adjust the position of the Vehicle/Override Action Bar.", 100)
 
-    local overrideYSlider = CreateFrame("Slider", nil, overrideBarGroup, "OptionsSliderTemplate")
+    local overrideYSlider = CreateDBSlider(overrideBarGroup, "Y Offset", "overrideActionBarYOffset", 0, 0, 300, 1, 340, 0, nil,
+        function() addon:UpdateOverrideActionBar() end)
     overrideYSlider:SetPoint("TOPLEFT", overrideBarTitle, "BOTTOMLEFT", 0, -28)
-    overrideYSlider:SetMinMaxValues(0, 300)
-    overrideYSlider:SetValue(addon.db.overrideActionBarYOffset or 0)
-    overrideYSlider:SetValueStep(1)
-    overrideYSlider:SetObeyStepOnDrag(true)
-    overrideYSlider:SetWidth(400)
-    overrideYSlider.Low:SetText("0")
-    overrideYSlider.High:SetText("300")
-    overrideYSlider.Text:SetText(string.format("Y Offset: %d", addon.db.overrideActionBarYOffset or 0))
-    overrideYSlider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value)
-        self.Text:SetText(string.format("Y Offset: %d", value))
-        addon.db.overrideActionBarYOffset = value
-        addon:UpdateOverrideActionBar()
-    end)
+    W.AttachHover(overrideYSlider, { body = "Raises the vehicle / override action bar this many pixels above the bottom of the screen." })
 
     -- Encounter Bar Prey %
-    local encounterBarGroup, encounterBarTitle = CreateSection(tabGeneral, "Encounter Bar", "Show the prey's health percentage on the encounter bar when hunting prey in outdoor zones.", 80)
+    local encounterBarGroup, encounterBarTitle = CreateSection(tabGeneral, "Encounter Bar", "Show the prey's health percentage on the encounter bar when hunting prey in outdoor zones.", 80, "preyPercent")
 
-    local encounterPercentCheck = CreateFrame("CheckButton", nil, encounterBarGroup, "InterfaceOptionsCheckButtonTemplate")
+    local encounterPercentCheck = W.CreateCheckbox(encounterBarGroup)
     encounterPercentCheck:SetPoint("TOPLEFT", encounterBarTitle, "BOTTOMLEFT", 0, -10)
+    W.AttachHover(encounterPercentCheck, { body = "While hunting prey outdoors, shows the prey's remaining health as a percentage on the encounter bar." })
     encounterPercentCheck.Text:SetText("Show prey encounter percentage")
     encounterPercentCheck:SetChecked(addon.db.encounterBarPreyPercentEnabled)
     encounterPercentCheck:SetScript("OnClick", function(self)
@@ -225,10 +226,11 @@ function addon:CreateSettingsPanel()
     end)
 
     -- Armor Set Action Highlights
-    local armorSetHighlightGroup, armorSetHighlightTitle = CreateSection(tabGeneral, "Armor Set Action Highlights", "Outline action buttons that trigger your currently equipped armor set.", 80)
+    local armorSetHighlightGroup, armorSetHighlightTitle = CreateSection(tabGeneral, "Armor Set Action Highlights", "Outline action buttons that trigger your currently equipped armor set.", 80, "armorSetHighlight")
 
-    local armorSetHighlightCheck = CreateFrame("CheckButton", nil, armorSetHighlightGroup, "InterfaceOptionsCheckButtonTemplate")
+    local armorSetHighlightCheck = W.CreateCheckbox(armorSetHighlightGroup)
     armorSetHighlightCheck:SetPoint("TOPLEFT", armorSetHighlightTitle, "BOTTOMLEFT", 0, -10)
+    W.AttachHover(armorSetHighlightCheck, { body = "Outlines action buttons that trigger your currently equipped armor set, in the same style as the assisted combat highlight." })
     armorSetHighlightCheck.Text:SetText("Use assisted-combat style outline for equipped set buttons")
     armorSetHighlightCheck:SetChecked(addon.db.armorSetActionHighlightEnabled)
     armorSetHighlightCheck:SetScript("OnClick", function(self)
@@ -238,6 +240,29 @@ function addon:CreateSettingsPanel()
         end
     end)
 
+    -- Micro Menu
+    local microMenuGroup, microMenuTitle = CreateSection(tabGeneral, "Micro Menu", "Adjust the appearance of the micro menu bar.", 110, "microMenuArt")
+
+    local microMenuArtCheck = W.CreateCheckbox(microMenuGroup)
+    microMenuArtCheck:SetPoint("TOPLEFT", microMenuTitle, "BOTTOMLEFT", 0, -10)
+    W.AttachHover(microMenuArtCheck, { body = "Hides the background art behind the micro menu buttons." })
+    microMenuArtCheck.Text:SetText("Hide micro menu background art")
+    microMenuArtCheck:SetChecked(addon.db.hideMicroMenuBackgroundArt)
+    microMenuArtCheck:SetScript("OnClick", function(self)
+        addon.db.hideMicroMenuBackgroundArt = self:GetChecked()
+        addon:UpdateMicroMenuArt()
+    end)
+
+    local microMenuBorderCheck = W.CreateCheckbox(microMenuGroup)
+    microMenuBorderCheck:SetPoint("TOPLEFT", microMenuArtCheck, "BOTTOMLEFT", 0, -6)
+    W.AttachHover(microMenuBorderCheck, { body = "Hides the border art around the micro menu." })
+    microMenuBorderCheck.Text:SetText("Hide micro menu border art")
+    microMenuBorderCheck:SetChecked(addon.db.hideMicroMenuBorderArt)
+    microMenuBorderCheck:SetScript("OnClick", function(self)
+        addon.db.hideMicroMenuBorderArt = self:GetChecked()
+        addon:UpdateMicroMenuArt()
+    end)
+
     -- ====================
     -- FRAME ADJUSTMENTS TAB CONTENT
     -- ====================
@@ -245,23 +270,14 @@ function addon:CreateSettingsPanel()
     -- Map Scale
     local bgMapScale, bgMapTitle = CreateSection(tabFrameAdjustments, "Battleground Map Scale", "Adjust the battlefield map size (Shift+M).", 130)
     
-    local scaleSlider = CreateFrame("Slider", nil, bgMapScale, "OptionsSliderTemplate")
+    local scaleSlider = CreateDBSlider(bgMapScale, "Scale (%)", "battlegroundMapScale", 1.0, 0.5, 2.0, 0.1, 200, 0, 100,
+        function() addon:ApplyTweaks() end)
     scaleSlider:SetPoint("TOPLEFT", bgMapTitle, "BOTTOMLEFT", 0, -28)
-    scaleSlider:SetMinMaxValues(0.5, 2.0)
-    scaleSlider:SetValue(addon.db.battlegroundMapScale or 1.0)
-    scaleSlider:SetValueStep(0.1)
-    scaleSlider:SetObeyStepOnDrag(true)
-    scaleSlider:SetWidth(200)
-    scaleSlider.Text:SetText(string.format("Scale: %.0f%%", (addon.db.battlegroundMapScale or 1.0) * 100))
-    scaleSlider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value * 10 + 0.5) / 10
-        self.Text:SetText(string.format("Scale: %.0f%%", value * 100))
-        addon.db.battlegroundMapScale = value
-        addon:ApplyTweaks()
-    end)
+    W.AttachHover(scaleSlider, { body = "Size of the battlefield map (Shift+M), where 100% is its normal size." })
 
-    local mapLowestStrataCheckbox = CreateFrame("CheckButton", nil, bgMapScale, "InterfaceOptionsCheckButtonTemplate")
+    local mapLowestStrataCheckbox = W.CreateCheckbox(bgMapScale)
     mapLowestStrataCheckbox:SetPoint("TOPLEFT", scaleSlider, "BOTTOMLEFT", 0, -10)
+    W.AttachHover(mapLowestStrataCheckbox, { body = "Draws the battlefield map beneath other frames, so it never covers them." })
     mapLowestStrataCheckbox.Text:SetText("Force map to lowest strata")
     mapLowestStrataCheckbox:SetChecked(addon.db.battlegroundMapForceLowestStrata)
     mapLowestStrataCheckbox:SetScript("OnClick", function(self)
@@ -272,8 +288,9 @@ function addon:CreateSettingsPanel()
     -- Experience Bars
     local expBarStrataGroup, expBarStrataTitle = CreateSection(tabFrameAdjustments, "Experience Bars", "Adjust strata behavior for XP/reputation/honor tracking bars.", 80)
 
-    local expBarHighestStrataCheckbox = CreateFrame("CheckButton", nil, expBarStrataGroup, "InterfaceOptionsCheckButtonTemplate")
+    local expBarHighestStrataCheckbox = W.CreateCheckbox(expBarStrataGroup)
     expBarHighestStrataCheckbox:SetPoint("TOPLEFT", expBarStrataTitle, "BOTTOMLEFT", 0, -10)
+    W.AttachHover(expBarHighestStrataCheckbox, { body = "Draws the experience, reputation and honor bars above other frames, so nothing covers them." })
     expBarHighestStrataCheckbox.Text:SetText("Force experience bars to highest strata")
     expBarHighestStrataCheckbox:SetChecked(addon.db.experienceBarsForceHighestStrata)
     expBarHighestStrataCheckbox:SetScript("OnClick", function(self)
@@ -284,8 +301,9 @@ function addon:CreateSettingsPanel()
     -- Center Raid/Party Frames
     local centerFramesGroup, centerFramesTitle = CreateSection(tabFrameAdjustments, "Raid & Party Frames", "Keep party and raid frame groups centered as they resize.", 110)
 
-    local centerPartyCheckbox = CreateFrame("CheckButton", nil, centerFramesGroup, "InterfaceOptionsCheckButtonTemplate")
+    local centerPartyCheckbox = W.CreateCheckbox(centerFramesGroup)
     centerPartyCheckbox:SetPoint("TOPLEFT", centerFramesTitle, "BOTTOMLEFT", 0, -10)
+    W.AttachHover(centerPartyCheckbox, { right = centerPartyCheckbox.Text, body = "Keeps the party frames centered on their position as members join and leave." })
     centerPartyCheckbox.Text:SetText("Center party frames")
     centerPartyCheckbox:SetChecked(addon.db.centerPartyFramesEnabled)
     centerPartyCheckbox:SetScript("OnClick", function(self)
@@ -293,8 +311,9 @@ function addon:CreateSettingsPanel()
         addon:SetPartyFrameCenteringEnabled(addon.db.centerPartyFramesEnabled)
     end)
 
-    local centerRaidCheckbox = CreateFrame("CheckButton", nil, centerFramesGroup, "InterfaceOptionsCheckButtonTemplate")
+    local centerRaidCheckbox = W.CreateCheckbox(centerFramesGroup)
     centerRaidCheckbox:SetPoint("TOPLEFT", centerPartyCheckbox, "BOTTOMLEFT", 0, -6)
+    W.AttachHover(centerRaidCheckbox, { body = "Keeps the raid frame groups centered as the raid grows and shrinks." })
     centerRaidCheckbox.Text:SetText("Center raid frames")
     centerRaidCheckbox:SetChecked(addon.db.centerRaidFramesEnabled)
     centerRaidCheckbox:SetScript("OnClick", function(self)
@@ -302,8 +321,9 @@ function addon:CreateSettingsPanel()
         addon:SetRaidFrameCenteringEnabled(addon.db.centerRaidFramesEnabled)
     end)
 
-    local centerFramesDebugCheckbox = CreateFrame("CheckButton", nil, centerFramesGroup, "InterfaceOptionsCheckButtonTemplate")
+    local centerFramesDebugCheckbox = W.CreateCheckbox(centerFramesGroup)
     centerFramesDebugCheckbox:SetPoint("LEFT", centerPartyCheckbox, "RIGHT", 220, 0)
+    W.AttachHover(centerFramesDebugCheckbox, { left = centerFramesDebugCheckbox, body = "Prints a message to chat each time the party or raid frames are re-centered, for troubleshooting." })
     centerFramesDebugCheckbox.Text:SetText("Debug logging")
     centerFramesDebugCheckbox:SetChecked(addon.db.centerFramesDebug)
     centerFramesDebugCheckbox:SetScript("OnClick", function(self)
@@ -314,31 +334,20 @@ function addon:CreateSettingsPanel()
     -- Top Center Widget Offset
     local topCenterWidgetGroup, topCenterWidgetTitle = CreateSection(tabFrameAdjustments, "Top Center Widget Offset", "Move UIWidgetTopCenterContainerFrame downward on the screen.", 100)
 
-    local topCenterWidgetSlider = CreateFrame("Slider", nil, topCenterWidgetGroup, "OptionsSliderTemplate")
+    local topCenterWidgetSlider = CreateDBSlider(topCenterWidgetGroup, "Offset", "topCenterWidgetOffset", 0, 0, 100, 1, 340, 0, nil,
+        function(value) addon:ApplyTopCenterWidgetOffset(value) end)
     topCenterWidgetSlider:SetPoint("TOPLEFT", topCenterWidgetTitle, "BOTTOMLEFT", 0, -28)
-    topCenterWidgetSlider:SetMinMaxValues(0, 100)
-    topCenterWidgetSlider:SetValue(addon.db.topCenterWidgetOffset or 0)
-    topCenterWidgetSlider:SetValueStep(1)
-    topCenterWidgetSlider:SetObeyStepOnDrag(true)
-    topCenterWidgetSlider:SetWidth(400)
-    topCenterWidgetSlider.Low:SetText("0")
-    topCenterWidgetSlider.High:SetText("100")
-    topCenterWidgetSlider.Text:SetText(string.format("Offset: %d", addon.db.topCenterWidgetOffset or 0))
-    topCenterWidgetSlider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value)
-        self.Text:SetText(string.format("Offset: %d", value))
-        addon.db.topCenterWidgetOffset = value
-        addon:ApplyTopCenterWidgetOffset(value)
-    end)
+    W.AttachHover(topCenterWidgetSlider, { body = "Moves the widgets at the top center of the screen, such as battleground scores and zone objectives, down by this many pixels." })
 
     -- ====================
     -- CHAT TAB
     -- ====================
-    local chatPanel, chatTitle = CreateSection(tabChat, "Chat Entry Box", "Customize the position and appearance of the chat input box.", 300)
+    local chatPanel, chatTitle = CreateSection(tabChat, "Chat Entry Box", "Customize the position and appearance of the chat input box.", 264)
 
     -- Unlock / Drag
-    local chatUnlock = CreateFrame("CheckButton", nil, chatPanel, "InterfaceOptionsCheckButtonTemplate")
+    local chatUnlock = W.CreateCheckbox(chatPanel)
     chatUnlock:SetPoint("TOPLEFT", chatTitle, "BOTTOMLEFT", 0, -12)
+    W.AttachHover(chatUnlock, { body = "Lets you move the chat entry box: hold Shift and drag it." })
     chatUnlock.Text:SetText("Unlock Chat Entry Box (Hold SHIFT to Drag)")
     chatUnlock:SetChecked(addon.db.chatEditBoxUnlock)
     chatUnlock:SetScript("OnClick", function(self)
@@ -347,8 +356,9 @@ function addon:CreateSettingsPanel()
     end)
 
     -- Disable Borders
-    local borderCheckbox = CreateFrame("CheckButton", nil, chatPanel, "InterfaceOptionsCheckButtonTemplate")
+    local borderCheckbox = W.CreateCheckbox(chatPanel)
     borderCheckbox:SetPoint("TOPLEFT", chatUnlock, "BOTTOMLEFT", 0, -12)
+    W.AttachHover(borderCheckbox, { body = "Hides the default border textures around the chat entry box." })
     borderCheckbox.Text:SetText("Hide Default Borders")
     borderCheckbox:SetChecked(addon.db.chatEditBoxHideBorder)
     borderCheckbox:SetScript("OnClick", function(self)
@@ -357,61 +367,47 @@ function addon:CreateSettingsPanel()
     end)
     
     -- Width Slider
-    local widthSlider = CreateFrame("Slider", nil, chatPanel, "OptionsSliderTemplate")
+    local widthSlider = CreateDBSlider(chatPanel, "Width", "chatEditBoxWidth", 450, 200, 1000, 10, 340, 0, nil,
+        function() addon:UpdateChatEditBox() end)
     widthSlider:SetPoint("TOPLEFT", borderCheckbox, "BOTTOMLEFT", 6, -30)
-    widthSlider:SetMinMaxValues(200, 1000)
-    widthSlider:SetValue(addon.db.chatEditBoxWidth or 450)
-    widthSlider:SetValueStep(10)
-    widthSlider:SetObeyStepOnDrag(true)
-    widthSlider:SetWidth(400)
-    widthSlider.Low:SetText("200")
-    widthSlider.High:SetText("1000")
-    widthSlider.Text:SetText(string.format("Width: %d", addon.db.chatEditBoxWidth or 450))
-    widthSlider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value)
-        self.Text:SetText(string.format("Width: %d", value))
-        addon.db.chatEditBoxWidth = value
-        addon:UpdateChatEditBox()
-    end)
-    
+    W.AttachHover(widthSlider, { body = "Width of the chat entry box, in pixels." })
+
     -- Anchor Dropdown
     local anchorLabel = chatPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     anchorLabel:SetPoint("TOPLEFT", widthSlider, "BOTTOMLEFT", 0, -20)
     anchorLabel:SetText("Resize Anchor (Determines growth direction):")
 
-    local anchorDropdown = CreateFrame("Frame", "GarageUIChatAnchorDropdown", chatPanel, "UIDropDownMenuTemplate")
-    anchorDropdown:SetPoint("TOPLEFT", anchorLabel, "BOTTOMLEFT", -16, -5)
-    
-    local function UpdateAnchor(val)
-        addon.db.chatEditBoxAnchor = val
-        UIDropDownMenu_SetText(anchorDropdown, val)
-        addon:UpdateChatEditBox()
+    local anchorDropdown = CreateDBChoiceDropdown(chatPanel, 120, {
+        { text = "LEFT", value = "LEFT" },
+        { text = "CENTER", value = "CENTER" },
+        { text = "RIGHT", value = "RIGHT" },
+    }, "chatEditBoxAnchor", "CENTER", function() addon:UpdateChatEditBox() end)
+    anchorDropdown:SetPoint("TOPLEFT", anchorLabel, "BOTTOMLEFT", 0, -5)
+    W.AttachHover(anchorDropdown, { top = anchorLabel, body = "Which part of the chat entry box stays in place when its width changes: Left grows it to the right, Right grows it to the left, and Center grows it both ways." })
+
+    -- Extend the main chat frame over the strip the entry box used to occupy
+    local extendChatPane = W.CreateCheckbox(chatPanel)
+    extendChatPane:SetPoint("TOPLEFT", anchorLabel, "BOTTOMLEFT", -6, -44) -- -6 lines it up with the checkboxes above
+    W.AttachHover(extendChatPane, { body = "Stretches the main chat window down over the strip the game keeps free for the chat entry box." })
+    extendChatPane.Text:SetText("Extend Default Chat Pane (fills the space left for the chat entry box)")
+    extendChatPane:SetChecked(addon.db.extendDefaultChatPane)
+    extendChatPane:SetScript("OnClick", function(self)
+        addon.db.extendDefaultChatPane = self:GetChecked()
+        addon:UpdateChatPaneExtend()
+    end)
+    if not addon:IsFeatureSupported("chatPaneExtend") then
+        -- Last row of the section, so the section just gets shorter
+        extendChatPane:Hide()
+        chatPanel:SetHeight(chatPanel:GetHeight() - 34)
+        tabChat.totalHeight = tabChat.totalHeight - 34
     end
 
-    UIDropDownMenu_Initialize(anchorDropdown, function(self, level, menuList)
-        local selected = addon.db.chatEditBoxAnchor or "CENTER"
-        local anchors = {"LEFT", "CENTER", "RIGHT"}
-        for _, anchor in ipairs(anchors) do
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = anchor
-            info.value = anchor
-            info.func = function(b) 
-                UpdateAnchor(b.value) 
-                UIDropDownMenu_SetSelectedValue(anchorDropdown, b.value)
-            end
-            info.checked = (selected == anchor)
-            UIDropDownMenu_AddButton(info)
-        end
-    end)
-    
-    UIDropDownMenu_SetText(anchorDropdown, addon.db.chatEditBoxAnchor or "CENTER")
-    UIDropDownMenu_SetWidth(anchorDropdown, 120)
-
     -- Chat Frame Button Background
-    local chatButtonBG, chatButtonTitle = CreateSection(tabChat, "Chat Frame Buttons", "Hide the minimize button, background and borders on chat frames.", 140)
+    local chatButtonBG, chatButtonTitle = CreateSection(tabChat, "Chat Frame Buttons", "Hide the minimize button, background and borders on chat frames.", 200)
     
-    local hideChatButtonBG = CreateFrame("CheckButton", nil, chatButtonBG, "InterfaceOptionsCheckButtonTemplate")
+    local hideChatButtonBG = W.CreateCheckbox(chatButtonBG)
     hideChatButtonBG:SetPoint("TOPLEFT", chatButtonTitle, "BOTTOMLEFT", 0, -12)
+    W.AttachHover(hideChatButtonBG, { body = "Hides the background and border behind the buttons beside the chat window, and the minimize button." })
     hideChatButtonBG.Text:SetText("Hide Button Background, Border & Minimize")
     hideChatButtonBG:SetChecked(addon.db.hideChatButtonFrameBackground)
     hideChatButtonBG:SetScript("OnClick", function(self)
@@ -419,8 +415,9 @@ function addon:CreateSettingsPanel()
         addon:ApplyTweaks()
     end)
 
-    local hideMenuButton = CreateFrame("CheckButton", nil, chatButtonBG, "InterfaceOptionsCheckButtonTemplate")
+    local hideMenuButton = W.CreateCheckbox(chatButtonBG)
     hideMenuButton:SetPoint("TOPLEFT", hideChatButtonBG, "BOTTOMLEFT", 0, -4)
+    W.AttachHover(hideMenuButton, { body = "Hides the chat menu button beside the chat window." })
     hideMenuButton.Text:SetText("Hide Chat Menu Button")
     hideMenuButton:SetChecked(addon.db.hideChatFrameMenuButton)
     hideMenuButton:SetScript("OnClick", function(self)
@@ -428,8 +425,9 @@ function addon:CreateSettingsPanel()
         addon:ApplyTweaks()
     end)
 
-    local hideChannelButton = CreateFrame("CheckButton", nil, chatButtonBG, "InterfaceOptionsCheckButtonTemplate")
+    local hideChannelButton = W.CreateCheckbox(chatButtonBG)
     hideChannelButton:SetPoint("TOPLEFT", hideMenuButton, "BOTTOMLEFT", 0, -4)
+    W.AttachHover(hideChannelButton, { body = "Hides the chat channels button beside the chat window." })
     hideChannelButton.Text:SetText("Hide Chat Channel Button")
     hideChannelButton:SetChecked(addon.db.hideChatFrameChannelButton)
     hideChannelButton:SetScript("OnClick", function(self)
@@ -437,8 +435,9 @@ function addon:CreateSettingsPanel()
         addon:ApplyTweaks()
     end)
 
-    local hideQuickJoinButton = CreateFrame("CheckButton", nil, chatButtonBG, "InterfaceOptionsCheckButtonTemplate")
+    local hideQuickJoinButton = W.CreateCheckbox(chatButtonBG)
     hideQuickJoinButton:SetPoint("TOPLEFT", hideChannelButton, "BOTTOMLEFT", 0, -4)
+    W.AttachHover(hideQuickJoinButton, { body = "Hides the social (Quick Join) button beside the chat window." })
     hideQuickJoinButton.Text:SetText("Hide Social Button (Quick Join)")
     hideQuickJoinButton:SetChecked(addon.db.hideQuickJoinToastButton)
     hideQuickJoinButton:SetScript("OnClick", function(self)
@@ -446,26 +445,75 @@ function addon:CreateSettingsPanel()
         addon:ApplyTweaks()
     end)
 
+    local chatButtonsOnRight = W.CreateCheckbox(chatButtonBG)
+    chatButtonsOnRight:SetPoint("TOPLEFT", hideQuickJoinButton, "BOTTOMLEFT", 0, -4)
+    W.AttachHover(chatButtonsOnRight, { body = "Moves the chat window's buttons to its right side." })
+    chatButtonsOnRight.Text:SetText("Move Buttons to Right Side of Chat")
+    chatButtonsOnRight:SetChecked(addon.db.chatButtonsOnRight)
+    chatButtonsOnRight:SetScript("OnClick", function(self)
+        addon.db.chatButtonsOnRight = self:GetChecked()
+        addon:ApplyTweaks()
+    end)
+    if not addon:IsFeatureSupported("chatButtonSide") then
+        -- Last row of the section, so the section just gets shorter
+        chatButtonsOnRight:Hide()
+        chatButtonBG:SetHeight(chatButtonBG:GetHeight() - 30)
+        tabChat.totalHeight = tabChat.totalHeight - 30
+    end
+
+    -- Chat Tabs
+    local chatTabsGroup, chatTabsTitle = CreateSection(tabChat, "Chat Tabs", "Control visibility of the tabs above chat frames.", 110)
+
+    local hideChatTabs = W.CreateCheckbox(chatTabsGroup)
+    hideChatTabs:SetPoint("TOPLEFT", chatTabsTitle, "BOTTOMLEFT", 0, -10)
+    W.AttachHover(hideChatTabs, { body = "Hides the tabs above each chat window." })
+    hideChatTabs.Text:SetText("Hide Chat Tabs")
+    hideChatTabs:SetChecked(addon.db.hideChatTabs)
+
+    local showChatTabsOnHover = W.CreateCheckbox(chatTabsGroup)
+    showChatTabsOnHover:SetPoint("TOPLEFT", hideChatTabs, "BOTTOMLEFT", 16, -6)
+    W.AttachHover(showChatTabsOnHover, { body = "While chat tabs are hidden, shows them again when you mouse over the chat window. Needs Hide Chat Tabs." })
+    showChatTabsOnHover.Text:SetText("Show Chat Tabs on Hover")
+    showChatTabsOnHover:SetChecked(addon.db.showChatTabsOnHover)
+    showChatTabsOnHover:SetScript("OnClick", function(self)
+        addon.db.showChatTabsOnHover = self:GetChecked()
+        addon:ApplyTweaks()
+    end)
+
+    local function UpdateChatTabHoverControl()
+        if addon.db.hideChatTabs then
+            showChatTabsOnHover:Enable()
+            showChatTabsOnHover.Text:SetTextColor(1, 1, 1)
+        else
+            showChatTabsOnHover:Disable()
+            showChatTabsOnHover.Text:SetTextColor(0.5, 0.5, 0.5)
+        end
+    end
+    UpdateChatTabHoverControl()
+
+    hideChatTabs:SetScript("OnClick", function(self)
+        addon.db.hideChatTabs = self:GetChecked()
+        UpdateChatTabHoverControl()
+        addon:ApplyTweaks()
+    end)
+
 
     -- ====================
     -- SPEED PANEL TAB
     -- ====================
-    local speedPanel, speedTitle = CreateSection(tabSpeed, "Speed Panel", "Displays your current movement speed.", 280)
+    local speedPanel, speedTitle = CreateSection(tabSpeed, "Speed Panel", "Displays your current movement speed.", 185)
     
-    local speedCheckbox = CreateFrame("CheckButton", nil, speedPanel, "InterfaceOptionsCheckButtonTemplate")
+    local speedCheckbox = W.CreateCheckbox(speedPanel)
     speedCheckbox:SetPoint("TOPLEFT", speedTitle, "BOTTOMLEFT", 0, -12)
+    W.AttachHover(speedCheckbox, { body = "Shows a small panel with your current movement speed." })
     speedCheckbox.Text:SetText("Enable Speed Panel")
     speedCheckbox:SetChecked(addon.db.speedPanelEnabled)
 
-    local lockCheckbox = CreateFrame("CheckButton", nil, speedPanel, "InterfaceOptionsCheckButtonTemplate")
+    local lockCheckbox = W.CreateCheckbox(speedPanel)
     lockCheckbox:SetPoint("TOPLEFT", speedCheckbox, "BOTTOMLEFT", 0, -12)
+    W.AttachHover(lockCheckbox, { body = "Stops the speed panel from being dragged. Unlock it to move it." })
     lockCheckbox.Text:SetText("Lock Panel Position")
     lockCheckbox:SetChecked(addon.db.speedPanelLocked)
-
-    local debugCheckbox = CreateFrame("CheckButton", nil, speedPanel, "InterfaceOptionsCheckButtonTemplate")
-    debugCheckbox:SetPoint("LEFT", speedCheckbox, "RIGHT", 150, 0)
-    debugCheckbox.Text:SetText("Debug Mode")
-    debugCheckbox:SetChecked(addon.db.speedPanelDebug or false)
 
     local resetButton = CreateFrame("Button", nil, speedPanel, "UIPanelButtonTemplate")
     resetButton:SetPoint("TOPLEFT", lockCheckbox, "BOTTOMLEFT", 0, -16)
@@ -476,7 +524,7 @@ function addon:CreateSettingsPanel()
     speedInfo:SetPoint("TOPLEFT", resetButton, "BOTTOMLEFT", 0, -16)
     speedInfo:SetWidth(300)
     speedInfo:SetJustifyH("LEFT")
-    speedInfo:SetText("Use /speedpanel to toggle options from chat.\nDrag the panel to move it when unlocked.")
+    speedInfo:SetText("Drag the panel to move it when unlocked.")
 
     -- Speed Panel Logic
     local function UpdateSpeedControls()
@@ -500,341 +548,21 @@ function addon:CreateSettingsPanel()
     
     lockCheckbox:SetScript("OnClick", function(self)
         addon.db.speedPanelLocked = self:GetChecked()
-        if addon.SpeedPanel then addon.SpeedPanel:EnableMouse(not addon.db.speedPanelLocked) end
-    end)
-
-    debugCheckbox:SetScript("OnClick", function(self)
-        addon.db.speedPanelDebug = self:GetChecked()
-        if addon.SpeedPanel then addon.SpeedPanel:SetDebug(addon.db.speedPanelDebug) end
+        addon:RefreshSpeedPanelLock()
     end)
 
     resetButton:SetScript("OnClick", function() addon:ResetSpeedPanelPosition() end)
     UpdateSpeedControls()
 
-    -- ====================
-    -- PRD TAB
-    -- ====================
-    local prdPanel, prdTitle = CreateSection(tabPRD, "Personal Resource Display", "Manage appearance of the Personal Resource Display (PRD).", 200)
-
-    -- Visibility Options
-    local enemyTargetCheck = CreateFrame("CheckButton", nil, prdPanel, "InterfaceOptionsCheckButtonTemplate")
-    enemyTargetCheck:SetPoint("TOPLEFT", prdTitle, "BOTTOMLEFT", 0, -12)
-    enemyTargetCheck.Text:SetText("Show when Enemy Target Selected")
-    enemyTargetCheck:SetChecked(addon.db.prdShowWithTargetEnemy)
-    enemyTargetCheck:SetScript("OnClick", function(self)
-        addon.db.prdShowWithTargetEnemy = self:GetChecked()
-        addon:SetPRDVisibilityOptions()
-    end)
-
-    local friendlyTargetCheck = CreateFrame("CheckButton", nil, prdPanel, "InterfaceOptionsCheckButtonTemplate")
-    friendlyTargetCheck:SetPoint("TOPLEFT", enemyTargetCheck, "BOTTOMLEFT", 0, -8)
-    friendlyTargetCheck.Text:SetText("Show when Friendly Target Selected")
-    friendlyTargetCheck:SetChecked(addon.db.prdShowWithTargetFriendly)
-    friendlyTargetCheck:SetScript("OnClick", function(self)
-        addon.db.prdShowWithTargetFriendly = self:GetChecked()
-        addon:SetPRDVisibilityOptions()
-    end)
-
-    -- Texture Selection Helper
-    local function CreateTextureDropdown(label, dbKey, updateFunc, anchorParent, relativeTo, x, y)
-        local lbl = anchorParent:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-        lbl:SetPoint("TOPLEFT", relativeTo, "BOTTOMLEFT", x, y)
-        lbl:SetText(label)
-
-        local dropdown = CreateFrame("Frame", "GUIT_" .. dbKey, anchorParent, "UIDropDownMenuTemplate")
-        dropdown:SetPoint("TOPLEFT", lbl, "BOTTOMLEFT", -16, -2)
-
-        local function InitMenu(self, level, menuList)
-            local selected = addon.db[dbKey] or "Interface\\TargetingFrame\\UI-TargetingFrame-BarFill"
-            local info = UIDropDownMenu_CreateInfo()
-            
-            -- Default
-            info.text = "Blizzard Default"
-            info.value = "Interface\\TargetingFrame\\UI-TargetingFrame-BarFill"
-            info.func = function(b) updateFunc(b.value) UIDropDownMenu_SetSelectedValue(dropdown, b.value) end
-            info.checked = (selected == info.value)
-            UIDropDownMenu_AddButton(info)
-
-            -- LSM
-            if LSM then
-                 local textures = LSM:HashTable("statusbar")
-                 local keys = {}
-                 for k in pairs(textures) do table.insert(keys, k) end
-                 table.sort(keys)
-                 for _, k in ipairs(keys) do
-                     local path = textures[k]
-                     info = UIDropDownMenu_CreateInfo()
-                     info.text = k
-                     info.value = path
-                     info.func = function(b) updateFunc(b.value) UIDropDownMenu_SetSelectedValue(dropdown, b.value) end
-                     info.checked = (selected == path)
-                     UIDropDownMenu_AddButton(info)
-                 end
-            end
-        end
-
-        UIDropDownMenu_Initialize(dropdown, InitMenu)
-        
-        -- Set Initial Text
-        local currentTex = addon.db[dbKey] or "Interface\\TargetingFrame\\UI-TargetingFrame-BarFill"
-        local friendlyName = "Custom/Unknown"
-        if currentTex == "Interface\\TargetingFrame\\UI-TargetingFrame-BarFill" then friendlyName = "Blizzard Default" end
-        if LSM then
-            for name, path in pairs(LSM:HashTable("statusbar")) do
-                if path == currentTex then friendlyName = name break end
-            end
-        end
-        UIDropDownMenu_SetText(dropdown, friendlyName)
-        UIDropDownMenu_SetWidth(dropdown, 180)
-        
-        return dropdown, lbl
-    end
-
-    -- Color Picker Helper
-    local function CreateColorPicker(parent, dbKey, updateFunc, relativeTo, x, y)
-        local swatch = CreateFrame("Button", nil, parent, "BackdropTemplate")
-        swatch:SetSize(20, 20)
-        swatch:SetPoint("LEFT", relativeTo, "RIGHT", x, y)
-        swatch:SetBackdrop({
-            edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1,
-            bgFile = "Interface\\Buttons\\WHITE8x8", tiling = false
-        })
-        swatch:SetBackdropBorderColor(0.6, 0.6, 0.6)
-        
-        local function UpdateSwatch()
-            local c = addon.db[dbKey] or {r=0, g=0, b=0, a=0.5}
-            swatch:SetBackdropColor(c.r, c.g, c.b, c.a or 1)
-        end
-        UpdateSwatch()
-
-        swatch:SetScript("OnClick", function()
-            local c = addon.db[dbKey] or {r=0, g=0, b=0, a=0.5}
-            
-            local function GetAlphaSafe()
-                if ColorPickerFrame.GetColorAlpha then
-                    return ColorPickerFrame:GetColorAlpha()
-                elseif OpacitySliderFrame then
-                    return 1 - OpacitySliderFrame:GetValue()
-                end
-                return 1
-            end
-
-            local info = {
-                r = c.r, g = c.g, b = c.b, opacity = (1 - (c.a or 1)),
-                hasOpacity = true,
-                swatchFunc = function()
-                    local r, g, b = ColorPickerFrame:GetColorRGB()
-                    local a = GetAlphaSafe()
-                    addon.db[dbKey] = {r=r, g=g, b=b, a=a}
-                    swatch:SetBackdropColor(r, g, b, a)
-                    if updateFunc then updateFunc() end
-                end,
-                opacityFunc = function()
-                    local r, g, b = ColorPickerFrame:GetColorRGB()
-                    local a = GetAlphaSafe()
-                    addon.db[dbKey] = {r=r, g=g, b=b, a=a}
-                    swatch:SetBackdropColor(r, g, b, a)
-                    if updateFunc then updateFunc() end
-                end,
-                cancelFunc = function()
-                    addon.db[dbKey] = c
-                    UpdateSwatch()
-                    if updateFunc then updateFunc() end
-                end,
-            }
-            -- Fix for modern ColorPickerFrame opacity handling if accessible
-            if ColorPickerFrame.Content and ColorPickerFrame.Content.ColorPicker then
-                 -- Setup might be different, but usually SetupColorPickerAndShow handles mapping
-                 -- Just ensuring we don't crash is step 1.
-            end
-            ColorPickerFrame:SetupColorPickerAndShow(info)
-        end)
-        return swatch
-    end
-
-    -- Group Box Helper
-    local function CreateGroupBox(titleText, parent, relativeTo, height)
-        local group = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-        group:SetBackdrop({
-            bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-            tile = true, tileSize = 16, edgeSize = 12,
-            insets = { left = 3, right = 3, top = 3, bottom = 3 }
-        })
-        group:SetBackdropColor(0.15, 0.15, 0.15, 0.5)
-        group:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.6)
-        
-        if relativeTo then
-            group:SetPoint("TOPLEFT", relativeTo, "BOTTOMLEFT", 0, -10)
-        else
-            group:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -10)
-        end
-        group:SetPoint("RIGHT", parent, "RIGHT", -10, 0)
-        group:SetHeight(height)
-
-        local title = group:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-        title:SetPoint("TOPLEFT", 8, -8)
-        title:SetText(titleText)
-        
-        return group
-    end
-
-    -- Create Dropdowns & Groups
-    
-    -- 1. Health Bar Group
-    local grpHealth = CreateGroupBox("Health Bar", prdPanel, friendlyTargetCheck, 110)
-    
-    local chkMatchHealth = CreateFrame("CheckButton", nil, grpHealth, "InterfaceOptionsCheckButtonTemplate")
-    chkMatchHealth:SetPoint("TOPLEFT", grpHealth, "TOPLEFT", 10, -25)
-    chkMatchHealth.Text:SetText("Match Player Frame Texture")
-    chkMatchHealth:SetChecked(addon.db.prdMatchHealth)
-    
-    local dropHealth, lblHealth = CreateTextureDropdown("Bar Texture", "prdTextureHealth", function(v) addon.db.prdTextureHealth = v; addon:UpdatePRDTextures() end, grpHealth, nil, 10, -30)
-    dropHealth:ClearAllPoints()
-    dropHealth:SetPoint("TOPLEFT", grpHealth, "TOPLEFT", 10, -65)
-    lblHealth:SetPoint("TOPLEFT", dropHealth, "TOPLEFT", 0, 16)
-    
-    local dropHealthBG, lblHealthBG = CreateTextureDropdown("Background Texture", "prdBackgroundHealth", function(v) addon.db.prdBackgroundHealth = v; addon:UpdatePRDTextures() end, grpHealth, nil, 230, 0)
-    dropHealthBG:ClearAllPoints()
-    dropHealthBG:SetPoint("TOPLEFT", grpHealth, "TOPLEFT", 230, -65)
-    lblHealthBG:SetPoint("TOPLEFT", dropHealthBG, "TOPLEFT", 0, 16)
-    
-    local cpHealth = CreateColorPicker(grpHealth, "prdBackgroundHealthColor", function() addon:UpdatePRDTextures() end, dropHealthBG, 170, 0)
-    -- Need to manually position cpHealth better to ensure visibility
-    cpHealth:ClearAllPoints()
-    cpHealth:SetPoint("LEFT", dropHealthBG, "RIGHT", -10, 2) -- To the right of the dropdown
-
-    -- Logic to Grey Out
-    local function UpdateHealthState() 
-       local match = addon.db.prdMatchHealth
-       if match then
-           UIDropDownMenu_DisableDropDown(dropHealth)
-           lblHealth:SetTextColor(0.5, 0.5, 0.5)
-           UIDropDownMenu_DisableDropDown(dropHealthBG)
-           lblHealthBG:SetTextColor(0.5, 0.5, 0.5)
-           cpHealth:Disable()
-           cpHealth:SetAlpha(0.5)
-       else
-           UIDropDownMenu_EnableDropDown(dropHealth)
-           lblHealth:SetTextColor(1, 1, 1)
-           UIDropDownMenu_EnableDropDown(dropHealthBG)
-           lblHealthBG:SetTextColor(1, 1, 1)
-           cpHealth:Enable()
-           cpHealth:SetAlpha(1)
-       end
-    end
-    UpdateHealthState()
-
-    chkMatchHealth:SetScript("OnClick", function(self)
-        addon.db.prdMatchHealth = self:GetChecked()
-        UpdateHealthState()
-        addon:UpdatePRDTextures()
-    end)
-    
-    -- 2. Power Bar Group
-    local grpPower = CreateGroupBox("Power Bar", prdPanel, grpHealth, 110)
-    
-    local chkMatchPower = CreateFrame("CheckButton", nil, grpPower, "InterfaceOptionsCheckButtonTemplate")
-    chkMatchPower:SetPoint("TOPLEFT", grpPower, "TOPLEFT", 10, -25)
-    chkMatchPower.Text:SetText("Match Player Frame Texture")
-    chkMatchPower:SetChecked(addon.db.prdMatchPower)
-
-    local dropPower, lblPower = CreateTextureDropdown("Bar Texture", "prdTexturePower", function(v) addon.db.prdTexturePower = v; addon:UpdatePRDTextures() end, grpPower, nil, 10, -35)
-    dropPower:ClearAllPoints(); dropPower:SetPoint("TOPLEFT", grpPower, "TOPLEFT", 10, -65)
-    lblPower:SetPoint("TOPLEFT", dropPower, "TOPLEFT", 0, 16)
-    
-    local dropPowerBG, lblPowerBG = CreateTextureDropdown("Background Texture", "prdBackgroundPower", function(v) addon.db.prdBackgroundPower = v; addon:UpdatePRDTextures() end, grpPower, nil, 230, -35)
-    dropPowerBG:ClearAllPoints(); dropPowerBG:SetPoint("TOPLEFT", grpPower, "TOPLEFT", 230, -65)
-    lblPowerBG:SetPoint("TOPLEFT", dropPowerBG, "TOPLEFT", 0, 16)
-
-    local cpPower = CreateColorPicker(grpPower, "prdBackgroundPowerColor", function() addon:UpdatePRDTextures() end, dropPowerBG, 170, 0)
-    cpPower:ClearAllPoints()
-    cpPower:SetPoint("LEFT", dropPowerBG, "RIGHT", -10, 2)
-    
-    local function UpdatePowerState() 
-       local match = addon.db.prdMatchPower
-       if match then
-           UIDropDownMenu_DisableDropDown(dropPower)
-           lblPower:SetTextColor(0.5, 0.5, 0.5)
-           UIDropDownMenu_DisableDropDown(dropPowerBG)
-           lblPowerBG:SetTextColor(0.5, 0.5, 0.5)
-           cpPower:Disable()
-           cpPower:SetAlpha(0.5)
-       else
-           UIDropDownMenu_EnableDropDown(dropPower)
-           lblPower:SetTextColor(1, 1, 1)
-           UIDropDownMenu_EnableDropDown(dropPowerBG)
-           lblPowerBG:SetTextColor(1, 1, 1)
-           cpPower:Enable()
-           cpPower:SetAlpha(1)
-       end
-    end
-    UpdatePowerState()
-
-    chkMatchPower:SetScript("OnClick", function(self)
-        addon.db.prdMatchPower = self:GetChecked()
-        UpdatePowerState()
-        addon:UpdatePRDTextures()
-    end)
-
-
-    -- 3. Alt Bar Group
-    local grpAlt = CreateGroupBox("Class/Alternate Bar", prdPanel, grpPower, 110)
-
-    local chkMatchAlt = CreateFrame("CheckButton", nil, grpAlt, "InterfaceOptionsCheckButtonTemplate")
-    chkMatchAlt:SetPoint("TOPLEFT", grpAlt, "TOPLEFT", 10, -25)
-    chkMatchAlt.Text:SetText("Match Player Frame Texture")
-    chkMatchAlt:SetChecked(addon.db.prdMatchAlternate)
-
-    local dropAlt, lblAlt = CreateTextureDropdown("Bar Texture", "prdTextureAlternate", function(v) addon.db.prdTextureAlternate = v; addon:UpdatePRDTextures() end, grpAlt, nil, 10, -35)
-    dropAlt:ClearAllPoints(); dropAlt:SetPoint("TOPLEFT", grpAlt, "TOPLEFT", 10, -65)
-    lblAlt:SetPoint("TOPLEFT", dropAlt, "TOPLEFT", 0, 16)
-    
-    local dropAltBG, lblAltBG = CreateTextureDropdown("Background Texture", "prdBackgroundAlternate", function(v) addon.db.prdBackgroundAlternate = v; addon:UpdatePRDTextures() end, grpAlt, nil, 230, -35)
-    dropAltBG:ClearAllPoints(); dropAltBG:SetPoint("TOPLEFT", grpAlt, "TOPLEFT", 230, -65)
-    lblAltBG:SetPoint("TOPLEFT", dropAltBG, "TOPLEFT", 0, 16)
-
-    local cpAlt = CreateColorPicker(grpAlt, "prdBackgroundAlternateColor", function() addon:UpdatePRDTextures() end, dropAltBG, 170, 0)
-    cpAlt:ClearAllPoints()
-    cpAlt:SetPoint("LEFT", dropAltBG, "RIGHT", -10, 2)
-    
-    local function UpdateAltState() 
-       local match = addon.db.prdMatchAlternate
-       if match then
-           UIDropDownMenu_DisableDropDown(dropAlt)
-           lblAlt:SetTextColor(0.5, 0.5, 0.5)
-           UIDropDownMenu_DisableDropDown(dropAltBG)
-           lblAltBG:SetTextColor(0.5, 0.5, 0.5)
-           cpAlt:Disable()
-           cpAlt:SetAlpha(0.5)
-       else
-           UIDropDownMenu_EnableDropDown(dropAlt)
-           lblAlt:SetTextColor(1, 1, 1)
-           UIDropDownMenu_EnableDropDown(dropAltBG)
-           lblAltBG:SetTextColor(1, 1, 1)
-           cpAlt:Enable()
-           cpAlt:SetAlpha(1)
-       end
-    end
-    UpdateAltState()
-
-    chkMatchAlt:SetScript("OnClick", function(self)
-        addon.db.prdMatchAlternate = self:GetChecked()
-        UpdateAltState()
-        addon:UpdatePRDTextures()
-    end)
-    
-    -- Increase height of section to fit
-    prdPanel:SetHeight(540)
-
     -------------------------------------------------------
     -- Background Panel Tab
     -------------------------------------------------------
-    local bgPanel = CreateSection(tabBackground, "Background Panel", "Configure the global background panel.", 300)
+    local bgPanel = CreateSection(tabBackground, "Background Panel", "Configure the global background panel.", 470)
 
     -- Enable Panel
-    local chkBGEnable = CreateFrame("CheckButton", nil, bgPanel, "InterfaceOptionsCheckButtonTemplate")
+    local chkBGEnable = W.CreateCheckbox(bgPanel)
     chkBGEnable:SetPoint("TOPLEFT", bgPanel, "TOPLEFT", 16, -40)
+    W.AttachHover(chkBGEnable, { body = "Shows a colored panel you can size and place anywhere, for example behind other parts of your UI." })
     chkBGEnable.Text:SetText("Enable Background Panel")
     chkBGEnable:SetChecked(addon.db.backgroundPanelEnabled)
     chkBGEnable:SetScript("OnClick", function(self)
@@ -843,8 +571,9 @@ function addon:CreateSettingsPanel()
     end)
     
     -- Lock Panel
-    local chkBGLock = CreateFrame("CheckButton", nil, bgPanel, "InterfaceOptionsCheckButtonTemplate")
+    local chkBGLock = W.CreateCheckbox(bgPanel)
     chkBGLock:SetPoint("TOPLEFT", chkBGEnable, "BOTTOMLEFT", 0, -8)
+    W.AttachHover(chkBGLock, { body = "Stops the background panel from being dragged or resized." })
     chkBGLock.Text:SetText("Lock Panel Position")
     chkBGLock:SetChecked(addon.db.backgroundPanelLocked)
     chkBGLock:SetScript("OnClick", function(self)
@@ -853,14 +582,22 @@ function addon:CreateSettingsPanel()
     end)
     
     -- Force Screen Width
-    local chkBGForce = CreateFrame("CheckButton", nil, bgPanel, "InterfaceOptionsCheckButtonTemplate")
+    local chkBGForce = W.CreateCheckbox(bgPanel)
     chkBGForce:SetPoint("TOPLEFT", chkBGLock, "BOTTOMLEFT", 0, -8)
+    W.AttachHover(chkBGForce, { body = "Makes the background panel exactly as wide as the screen." })
     chkBGForce.Text:SetText("Force Screen Width")
     chkBGForce:SetChecked(addon.db.backgroundPanelForceWidth)
-    
+
+    -- Force Screen Height
+    local chkBGForceH = W.CreateCheckbox(bgPanel)
+    chkBGForceH:SetPoint("TOPLEFT", chkBGForce, "BOTTOMLEFT", 0, -8)
+    W.AttachHover(chkBGForceH, { body = "Makes the background panel exactly as tall as the screen." })
+    chkBGForceH.Text:SetText("Force Screen Height")
+    chkBGForceH:SetChecked(addon.db.backgroundPanelForceHeight)
+
     -- Color Picker
     local lblBGColor = bgPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    lblBGColor:SetPoint("TOPLEFT", chkBGForce, "BOTTOMLEFT", 0, -20)
+    lblBGColor:SetPoint("TOPLEFT", chkBGForceH, "BOTTOMLEFT", 0, -20)
     lblBGColor:SetText("Panel Color / Alpha")
     
     local btnBGColor = CreateFrame("Button", nil, bgPanel)
@@ -944,81 +681,47 @@ function addon:CreateSettingsPanel()
     -- Width / Height Inputs
     local lblDimensions = bgPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     lblDimensions:SetPoint("TOPLEFT", lblBGColor, "BOTTOMLEFT", 0, -20)
-    lblDimensions:SetText("Dimensions (Width x Height)")
+    lblDimensions:SetText("Dimensions")
 
-    local editWidth = CreateFrame("EditBox", nil, bgPanel, "InputBoxTemplate")
-    editWidth:SetSize(60, 20)
-    editWidth:SetPoint("LEFT", lblDimensions, "RIGHT", 10, 0)
-    editWidth:SetAutoFocus(false)
-    editWidth:SetNumeric(true)
-    editWidth:SetNumber(addon.db.backgroundPanelWidth)
-    editWidth:SetScript("OnEnterPressed", function(self) 
-        addon.db.backgroundPanelWidth = self:GetNumber()
-        self:ClearFocus() 
+    -- Setter for the dimension sliders; refreshes every dimension control
+    local function SetBGDimension(key, value)
+        value = math.max(16, math.floor((tonumber(value) or 0) + 0.5))
+        if addon.db[key] == value then return end
+        addon.db[key] = value
         addon:UpdateBackgroundPanel()
-    end)
-    
-    local lblX = bgPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    lblX:SetPoint("LEFT", editWidth, "RIGHT", 5, 0)
-    lblX:SetText("x")
-    
-    local editHeight = CreateFrame("EditBox", nil, bgPanel, "InputBoxTemplate")
-    editHeight:SetSize(60, 20)
-    editHeight:SetPoint("LEFT", lblX, "RIGHT", 5, 0)
-    editHeight:SetAutoFocus(false)
-    editHeight:SetNumeric(true)
-    editHeight:SetNumber(addon.db.backgroundPanelHeight)
-    editHeight:SetScript("OnEnterPressed", function(self)
-        addon.db.backgroundPanelHeight = self:GetNumber()
-        self:ClearFocus()
-        addon:UpdateBackgroundPanel()
-    end)
+        addon:RefreshSettings("background")
+    end
 
+    -- Width / Height Sliders (max is the screen size, set when the page opens)
+    local function CreateDimensionSlider(key, label, anchorTo)
+        local slider = W.CreateSlider(bgPanel, {
+            label = label, min = 16, max = 4096, step = 1, width = 300,
+            value = addon.db[key] or 16,
+            onChange = function(value) SetBGDimension(key, value) end,
+        })
+        slider:SetPoint("TOPLEFT", anchorTo, "BOTTOMLEFT", 0, -30)
+        W.AttachHover(slider, { body = label .. " of the background panel, in pixels, up to the size of the screen. Fixed to the screen's " .. label:lower() .. " while Force Screen " .. label .. " is on." })
+        return slider
+    end
+
+    local sliderWidth = CreateDimensionSlider("backgroundPanelWidth", "Width", lblDimensions)
+    local sliderHeight = CreateDimensionSlider("backgroundPanelHeight", "Height", sliderWidth)
 
     -- Anchor Dropdown
     local lblAnchor = bgPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    lblAnchor:SetPoint("TOPLEFT", lblDimensions, "BOTTOMLEFT", 0, -20)
+    lblAnchor:SetPoint("TOPLEFT", sliderHeight, "BOTTOMLEFT", 0, -24)
     lblAnchor:SetText("Anchor Point")
 
-    local dropAnchor = CreateFrame("Frame", "GarageUITweaksBGAnchorDrop", bgPanel, "UIDropDownMenuTemplate")
-    dropAnchor:SetPoint("LEFT", lblAnchor, "RIGHT", -10, -2)
-    
-    local function InitAnchorMenu(self, level, menuList)
-        local anchors = {
-            "TOPLEFT", "TOP", "TOPRIGHT",
-            "LEFT", "CENTER", "RIGHT",
-            "BOTTOMLEFT", "BOTTOM", "BOTTOMRIGHT"
-        }
-        
-        local info = UIDropDownMenu_CreateInfo()
-        for _, anchor in ipairs(anchors) do
-            info.text = anchor
-            info.func = function()
-                -- When changing anchor, we want to keep the panel in the same visual spot
-                -- But X/Y need to be recalculated relative to the new anchor
-                -- This is tricky without the frame being available here easily to GetCenter etc
-                -- However, BackgroundPanel.lua has the frame.
-                
-                -- We'll just set the DB and let UpdateBackgroundPanel handle potential jumps
-                -- OR we could try to be smart if the frame is shown.
-                -- For now, simple switch. User can drag to fix.
-                
-                addon.db.backgroundPanelAnchor = anchor
-                UIDropDownMenu_SetSelectedValue(dropAnchor, anchor)
-                if addon.UpdateBackgroundPanel then
-                     -- Ideally we reset position to center if it goes off screen, but let's just update
-                     addon:UpdateBackgroundPanel(true) -- Pass true to indicate "Anchor Changed" if we want special logic
-                end
-            end
-            info.checked = (addon.db.backgroundPanelAnchor == anchor)
-            UIDropDownMenu_AddButton(info)
-        end
+    local anchorOptions = {}
+    for i, anchor in ipairs({ "TOPLEFT", "TOP", "TOPRIGHT", "LEFT", "CENTER", "RIGHT", "BOTTOMLEFT", "BOTTOM", "BOTTOMRIGHT" }) do
+        anchorOptions[i] = { text = anchor, value = anchor }
     end
-    
-    UIDropDownMenu_Initialize(dropAnchor, InitAnchorMenu)
-    UIDropDownMenu_SetWidth(dropAnchor, 120)
-    UIDropDownMenu_SetSelectedValue(dropAnchor, addon.db.backgroundPanelAnchor or "CENTER")
-    UIDropDownMenu_JustifyText(dropAnchor, "LEFT")
+    -- Just switches the anchor; X/Y aren't converted, so the panel may jump. Drag it to fix.
+    -- UpdateBackgroundPanel(true) signals the anchor changed.
+    local dropAnchor = CreateDBChoiceDropdown(bgPanel, 120, anchorOptions, "backgroundPanelAnchor", "CENTER",
+        function() addon:UpdateBackgroundPanel(true) end)
+    dropAnchor:SetPoint("LEFT", lblAnchor, "RIGHT", 10, 0)
+    W.AttachHover(dropAnchor, { top = lblAnchor, body = "The point of the screen the panel's position is measured from. Changing it can make the panel jump; drag it back into place." })
 
 
 
@@ -1035,104 +738,65 @@ function addon:CreateSettingsPanel()
         addon.db.backgroundPanelY = 0
         addon.db.backgroundPanelAnchor = "CENTER"
         addon.db.backgroundPanelForceWidth = false
-        
+        addon.db.backgroundPanelForceHeight = false
+
         -- Update UI
         addon:UpdateBackgroundPanel()
         addon:RefreshSettings("background")
     end)
 
-
-    -- Force width update logic
-    local function UpdateWidthState()
-        if addon.db.backgroundPanelForceWidth then
-             editWidth:Disable()
-             editWidth:SetTextColor(0.5, 0.5, 0.5)
-        else
-             editWidth:Enable()
-             editWidth:SetTextColor(1, 1, 1)
-        end
-    end
-    UpdateWidthState()
-    
-    chkBGForce:SetScript("OnClick", function(self)
-        addon.db.backgroundPanelForceWidth = self:GetChecked()
-        UpdateWidthState()
-        addon:UpdateBackgroundPanel()
-    end)
-    
     -- Listener for external updates (e.g. drag resizing)
     function addon:RefreshSettings(module)
-        if module == "background" and editWidth:IsVisible() then
-             -- Round to avoid excessive decimals
-             editWidth:SetNumber(math.floor(addon.db.backgroundPanelWidth + 0.5))
-             editHeight:SetNumber(math.floor(addon.db.backgroundPanelHeight + 0.5))
-             chkBGEnable:SetChecked(addon.db.backgroundPanelEnabled)
-             chkBGLock:SetChecked(addon.db.backgroundPanelLocked)
-             
-             UIDropDownMenu_SetSelectedValue(dropAnchor, addon.db.backgroundPanelAnchor)
-             UIDropDownMenu_SetText(dropAnchor, addon.db.backgroundPanelAnchor)
+        if module ~= "background" or not sliderWidth:IsVisible() then return end
+        local db = addon.db
+
+        -- Always show the panel's real size (screen size when forced)
+        local w, h = addon:GetBackgroundPanelSize()
+        local bgFrame = addon.backgroundPanel
+        if bgFrame and bgFrame.dragRect then
+            w, h = bgFrame.dragRect[3], bgFrame.dragRect[4]
         end
+        w, h = math.floor(w + 0.5), math.floor(h + 0.5)
+        local sw, sh = math.floor(GetScreenWidth() + 0.5), math.floor(GetScreenHeight() + 0.5)
+
+        sliderWidth:SetMinMaxValues(16, math.max(sw, w))
+        sliderWidth:SetValue(w, true)
+        sliderHeight:SetMinMaxValues(16, math.max(sh, h))
+        sliderHeight:SetValue(h, true)
+
+        sliderWidth:SetEnabled(not db.backgroundPanelForceWidth)
+        sliderHeight:SetEnabled(not db.backgroundPanelForceHeight)
+
+        chkBGEnable:SetChecked(db.backgroundPanelEnabled)
+        chkBGLock:SetChecked(db.backgroundPanelLocked)
+        chkBGForce:SetChecked(db.backgroundPanelForceWidth)
+        chkBGForceH:SetChecked(db.backgroundPanelForceHeight)
+
+        dropAnchor:Refresh()
     end
+
+    chkBGForce:SetScript("OnClick", function(self)
+        addon.db.backgroundPanelForceWidth = self:GetChecked()
+        addon:UpdateBackgroundPanel()
+        addon:RefreshSettings("background")
+    end)
+
+    chkBGForceH:SetScript("OnClick", function(self)
+        addon.db.backgroundPanelForceHeight = self:GetChecked()
+        addon:UpdateBackgroundPanel()
+        addon:RefreshSettings("background")
+    end)
 
 
     -- ====================
     -- NAMEPLATE TAB CONTENT
     -- ====================
-    local npPanel, npTitle = CreateSection(tabNameplates, "Nameplate Settings", "Configure nameplate behavior and appearance.", 220)
+    local npFriendlyPanel, npFriendlyTitle = CreateSection(tabNameplates, "Friendly Simplified Names", "Render readable names above simplified friendly player nameplates.", 590)
 
-    -- Simplified Nameplate Scale Slider
-    local npScaleSlider = CreateFrame("Slider", nil, npPanel, "OptionsSliderTemplate")
-    npScaleSlider:SetPoint("TOPLEFT", npTitle, "BOTTOMLEFT", 0, -28)
-    npScaleSlider:SetMinMaxValues(0.15, 1.0)
-    npScaleSlider:SetValue(addon.db.nameplateSimplifiedScale or 1.0)
-    npScaleSlider:SetValueStep(0.05)
-    npScaleSlider:SetObeyStepOnDrag(true)
-    npScaleSlider:SetWidth(200)
-    npScaleSlider.Low:SetText("15%")
-    npScaleSlider.High:SetText("100%")
-    npScaleSlider.Text:SetText(string.format("Simplified Scale: %.0f%%", (addon.db.nameplateSimplifiedScale or 1.0) * 100))
-    npScaleSlider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value * 20 + 0.5) / 20 -- Rounding to nearest 0.05
-        self.Text:SetText(string.format("Simplified Scale: %.0f%%", value * 100))
-        addon.db.nameplateSimplifiedScale = value
-        
-        -- Apply the scale using our addon logic
-        if addon.UpdateNameplateScale then
-             addon:UpdateNameplateScale()
-        end
-    end)
-
-    -- Friendly Name Class Color Checkbox
-    local npClassColor = CreateFrame("CheckButton", nil, npPanel, "InterfaceOptionsCheckButtonTemplate")
-    npClassColor:SetPoint("TOPLEFT", npScaleSlider, "BOTTOMLEFT", 0, -28)
-    npClassColor.Text:SetText("Use Class Colors on Friendly Names")
-    npClassColor:SetChecked(addon.db.nameplateUseClassColorForFriendlyPlayerUnitNames)
-    npClassColor:SetScript("OnClick", function(self)
-        local isChecked = self:GetChecked()
-        addon.db.nameplateUseClassColorForFriendlyPlayerUnitNames = isChecked
-        if addon.SetFriendlyClassColorCVar then
-            addon:SetFriendlyClassColorCVar(isChecked)
-        else
-            local val = isChecked and "1" or "0"
-            if C_CVar and C_CVar.SetCVar then
-                pcall(function() C_CVar.SetCVar("nameplateUseClassColorForFriendlyPlayerUnitNames", val) end)
-            elseif SetCVar then
-                pcall(function() SetCVar("nameplateUseClassColorForFriendlyPlayerUnitNames", val) end)
-            end
-            if ConsoleExec then
-                ConsoleExec("nameplateUseClassColorForFriendlyPlayerUnitNames " .. val)
-            end
-        end
-        if addon.UpdateFriendlyNameplates then
-            addon:UpdateFriendlyNameplates()
-        end
-    end)
-
-    local npFriendlyPanel, npFriendlyTitle = CreateSection(tabNameplates, "Friendly Simplified Names", "Render readable names above simplified friendly player nameplates.", 470)
-    local npFriendlyLeftInset = 10
-
-    local npFriendlyEnabled = CreateFrame("CheckButton", nil, npFriendlyPanel, "InterfaceOptionsCheckButtonTemplate")
-    npFriendlyEnabled:SetPoint("TOPLEFT", npFriendlyTitle, "BOTTOMLEFT", npFriendlyLeftInset, -12)
+    -- Every control in this section shares the title's left edge.
+    local npFriendlyEnabled = W.CreateCheckbox(npFriendlyPanel)
+    npFriendlyEnabled:SetPoint("TOPLEFT", npFriendlyTitle, "BOTTOMLEFT", 0, -12)
+    W.AttachHover(npFriendlyEnabled, { body = "Draws a readable name above friendly players' simplified nameplates." })
     npFriendlyEnabled.Text:SetText("Enable Friendly Name Rendering")
     npFriendlyEnabled:SetChecked(addon.db.nameplateFriendlyNamesEnabled ~= false)
     npFriendlyEnabled:SetScript("OnClick", function(self)
@@ -1140,8 +804,9 @@ function addon:CreateSettingsPanel()
         if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
     end)
 
-    local npFriendlyShowTitle = CreateFrame("CheckButton", nil, npFriendlyPanel, "InterfaceOptionsCheckButtonTemplate")
+    local npFriendlyShowTitle = W.CreateCheckbox(npFriendlyPanel)
     npFriendlyShowTitle:SetPoint("TOPLEFT", npFriendlyEnabled, "BOTTOMLEFT", 0, -4)
+    W.AttachHover(npFriendlyShowTitle, { body = "Includes the player's title in their name." })
     npFriendlyShowTitle.Text:SetText("Show Title")
     npFriendlyShowTitle:SetChecked(addon.db.nameplateFriendlyNamesShowTitle == true)
     npFriendlyShowTitle:SetScript("OnClick", function(self)
@@ -1149,13 +814,57 @@ function addon:CreateSettingsPanel()
         if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
     end)
 
-    local fontLabel = npFriendlyPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    fontLabel:SetPoint("TOPLEFT", npFriendlyPanel, "TOPLEFT", npFriendlyLeftInset, -96)
-    fontLabel:SetText("Font")
+    local npFriendlyShowGuild = W.CreateCheckbox(npFriendlyPanel)
+    npFriendlyShowGuild:SetPoint("TOPLEFT", npFriendlyShowTitle, "BOTTOMLEFT", 0, -4)
+    W.AttachHover(npFriendlyShowGuild, { body = "Also shows the player's guild name." })
+    npFriendlyShowGuild.Text:SetText("Show Guild Name")
+    npFriendlyShowGuild:SetChecked(addon.db.nameplateFriendlyNamesShowGuild == true)
+    npFriendlyShowGuild:SetScript("OnClick", function(self)
+        addon.db.nameplateFriendlyNamesShowGuild = self:GetChecked()
+        addon:UpdateFriendlyNameplates()
+    end)
 
-    local fontDropdown = CreateFrame("Frame", "GUIT_FriendlyNameFontDropdown", npFriendlyPanel, "UIDropDownMenuTemplate")
-    fontDropdown:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", -8, -2)
-    UIDropDownMenu_SetWidth(fontDropdown, 210)
+    local npClassColor = W.CreateCheckbox(npFriendlyPanel)
+    npClassColor:SetPoint("TOPLEFT", npFriendlyShowGuild, "BOTTOMLEFT", 0, -4)
+    W.AttachHover(npClassColor, { body = "Colors friendly player names by class." })
+    npClassColor.Text:SetText("Use Class Colors on Friendly Names")
+    npClassColor:SetChecked(addon.db.nameplateUseClassColorForFriendlyPlayerUnitNames)
+    npClassColor:SetScript("OnClick", function(self)
+        addon.db.nameplateUseClassColorForFriendlyPlayerUnitNames = self:GetChecked()
+        addon:SetFriendlyClassColorCVar(self:GetChecked())
+        addon:UpdateFriendlyNameplates()
+    end)
+
+    local function UpdateFriendlyNameplates()
+        if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
+    end
+
+    local npFriendlyScale = CreateDBSlider(npFriendlyPanel, "Nameplate Scale (%)", "nameplateFriendlyScale", 1.0, 0.5, 3.0, 0.05, 220, 0, 100, UpdateFriendlyNameplates)
+    npFriendlyScale:SetPoint("TOPLEFT", npClassColor, "BOTTOMLEFT", 0, -28)
+    W.AttachHover(npFriendlyScale, { body = "Size of friendly nameplates, where 100% is their normal size." })
+
+    -- Sits between the class colour checkbox and the scale slider; scoped to stay under the local limit
+    do
+        local npFullInInstances = W.CreateCheckbox(npFriendlyPanel)
+        npFullInInstances:SetPoint("TOPLEFT", npClassColor, "BOTTOMLEFT", 0, -4)
+        W.AttachHover(npFullInInstances, { body = "Addons can't draw on friendly nameplates in dungeons, raids and scenarios, so simplified plates show no names there. This turns simplified friendly player nameplates off while you are inside one and back on when you leave." })
+        npFullInInstances.Text:SetText("Use Default Friendly Nameplates in Instances")
+        npFullInInstances:SetChecked(addon.db.nameplateFullFriendlyInInstances == true)
+        npFullInInstances:SetScript("OnClick", function(self)
+            addon.db.nameplateFullFriendlyInInstances = self:GetChecked()
+            addon:UpdateInstanceSimplifiedNameplates()
+        end)
+
+        if addon:IsFeatureSupported("simplifiedNameplateTypes") then
+            npFriendlyScale:SetPoint("TOPLEFT", npFullInInstances, "BOTTOMLEFT", 0, -28)
+        else
+            npFullInInstances:Hide()
+        end
+    end
+
+    local fontLabel = npFriendlyPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    fontLabel:SetPoint("TOPLEFT", npFriendlyScale, "BOTTOMLEFT", 0, -24)
+    fontLabel:SetText("Font")
 
     local function BuildFriendlyFontList()
         local fontList = {
@@ -1282,102 +991,64 @@ function addon:CreateSettingsPanel()
         end)
 
         for _, group in ipairs(groupOrder) do
-            table.sort(grouped[group], function(a, b)
-                return a.name:lower() < b.name:lower()
-            end)
+            if grouped[group] then
+                table.sort(grouped[group], function(a, b)
+                    return a.name:lower() < b.name:lower()
+                end)
+            end
         end
 
         return fontList, grouped, groupOrder
     end
 
-    local function GetFriendlyFontDisplayName(path)
-        local list = BuildFriendlyFontList()
-        for _, item in ipairs(list) do
-            if item.path == path then
-                return item.group and (item.group .. " - " .. item.name) or item.name
+    -- Typeface dropdown whose entries are each drawn in their own font, one submenu per
+    -- source. getPath returns the chosen font file (nil, or one not listed, shows
+    -- "Default"); setPath stores a new one. The stepper buttons walk every group in turn.
+    local previewFonts = {}
+    local previewFontCount = 0
+    local function GetPreviewFont(path)
+        local font = previewFonts[path]
+        if font == nil then
+            previewFontCount = previewFontCount + 1
+            font = CreateFont("GUIT_FontPreview" .. previewFontCount)
+            -- Only an explicit false is a failure; SetFont returns nothing on success here
+            if font:SetFont(path, 14, "") == false then
+                font = false -- font file missing; fall back to the default menu font
             end
+            previewFonts[path] = font
         end
-        return "Custom/Unknown"
+        return font or nil
     end
 
-    UIDropDownMenu_Initialize(fontDropdown, function(self, level)
-        local selected = addon.db.nameplateFriendlyNameFont or "Fonts\\FRIZQT__.TTF"
-        local _, grouped, groupOrder = BuildFriendlyFontList()
-        local menuList = UIDROPDOWNMENU_MENU_VALUE
+    local function CreateFontDropdown(parent, getPath, setPath)
+        local function IsSelected(path) return getPath() == path end
+        local function SetSelected(path) setPath(path) end
 
-        if level == 1 then
+        local dropdown = W.CreateDropdown(parent, 210, function(_, rootDescription)
+            local _, grouped, groupOrder = BuildFriendlyFontList()
             for _, group in ipairs(groupOrder) do
                 local fontsInGroup = grouped[group] or {}
                 if #fontsInGroup > 0 then
-                    local info = UIDropDownMenu_CreateInfo()
-                    info.text = group
-                    info.hasArrow = true
-                    info.notCheckable = true
-                    info.value = { kind = "group", group = group }
-                    UIDropDownMenu_AddButton(info, level)
-                end
-            end
-            return
-        end
-
-        if level == 2 and type(menuList) == "table" and menuList.kind == "group" then
-            local group = menuList.group
-            local fontsInGroup = grouped[group] or {}
-            if #fontsInGroup > 24 then
-                local idx = 1
-                while idx <= #fontsInGroup do
-                    local finish = math.min(idx + 23, #fontsInGroup)
-                    local info = UIDropDownMenu_CreateInfo()
-                    info.text = string.format("%d-%d", idx, finish)
-                    info.hasArrow = true
-                    info.notCheckable = true
-                    info.value = { kind = "page", group = group, startIndex = idx, endIndex = finish }
-                    UIDropDownMenu_AddButton(info, level)
-                    idx = finish + 1
-                end
-            else
-                for _, item in ipairs(fontsInGroup) do
-                    local info = UIDropDownMenu_CreateInfo()
-                    info.text = item.name
-                    info.value = item.path
-                    info.func = function(btn)
-                        addon.db.nameplateFriendlyNameFont = btn.value
-                        UIDropDownMenu_SetSelectedValue(fontDropdown, btn.value)
-                        UIDropDownMenu_SetText(fontDropdown, GetFriendlyFontDisplayName(btn.value))
-                        if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
+                    local groupDescription = rootDescription:CreateButton(group)
+                    for _, item in ipairs(fontsInGroup) do
+                        W.CreateFontRadio(groupDescription, item.name, GetPreviewFont(item.path), IsSelected, SetSelected, item.path)
                     end
-                    info.checked = (selected == item.path)
-                    UIDropDownMenu_AddButton(info, level)
+                    W.LimitMenuHeight(groupDescription, #fontsInGroup)
                 end
             end
-            return
-        end
+        end)
+        dropdown.Dropdown:SetDefaultText("Default")
+        return dropdown
+    end
 
-        if level == 3 and type(menuList) == "table" and menuList.kind == "page" then
-            local group = menuList.group
-            local fontsInGroup = grouped[group] or {}
-            for idx = menuList.startIndex, menuList.endIndex do
-                local item = fontsInGroup[idx]
-                if item then
-                    local info = UIDropDownMenu_CreateInfo()
-                    info.text = item.name
-                    info.value = item.path
-                    info.func = function(btn)
-                        addon.db.nameplateFriendlyNameFont = btn.value
-                        UIDropDownMenu_SetSelectedValue(fontDropdown, btn.value)
-                        UIDropDownMenu_SetText(fontDropdown, GetFriendlyFontDisplayName(btn.value))
-                        if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
-                    end
-                    info.checked = (selected == item.path)
-                    UIDropDownMenu_AddButton(info, level)
-                end
-            end
-        end
-    end)
-
-    local selectedFriendlyFont = addon.db.nameplateFriendlyNameFont or "Fonts\\FRIZQT__.TTF"
-    UIDropDownMenu_SetSelectedValue(fontDropdown, selectedFriendlyFont)
-    UIDropDownMenu_SetText(fontDropdown, GetFriendlyFontDisplayName(selectedFriendlyFont))
+    local fontDropdown = CreateFontDropdown(npFriendlyPanel,
+        function() return addon.db.nameplateFriendlyNameFont or "Fonts\\FRIZQT__.TTF" end,
+        function(path)
+            addon.db.nameplateFriendlyNameFont = path
+            addon:UpdateFriendlyNameplates()
+        end)
+    fontDropdown:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -2)
+    W.AttachHover(fontDropdown, { top = fontLabel, body = "Typeface for friendly names. Lists fonts from LibSharedMedia and FontMagic too, when they're installed." })
 
     local function CreateNameColorSwatch(parent, relativeTo)
         local lbl = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
@@ -1447,180 +1118,299 @@ function addon:CreateSettingsPanel()
     local _ = CreateNameColorSwatch(npFriendlyPanel, fontDropdown)
 
     local outlineLabel = npFriendlyPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    outlineLabel:SetPoint("TOPLEFT", fontDropdown, "BOTTOMLEFT", 0, -18)
+    outlineLabel:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -46)
     outlineLabel:SetText("Outline Type")
 
-    local outlineDropdown = CreateFrame("Frame", "GUIT_FriendlyNameOutlineDropdown", npFriendlyPanel, "UIDropDownMenuTemplate")
-    outlineDropdown:SetPoint("TOPLEFT", outlineLabel, "BOTTOMLEFT", -8, -2)
-    UIDropDownMenu_SetWidth(outlineDropdown, 160)
+    -- Saved values may be lower case from older versions
+    local function UpperDBChoice(dbKey, default)
+        return function() return (addon.db[dbKey] or default):upper() end
+    end
 
-    UIDropDownMenu_Initialize(outlineDropdown, function(self, level)
-        local selected = (addon.db.nameplateFriendlyNameOutline or "OUTLINE"):upper()
-        local options = {
-            { text = "None", value = "NONE" },
-            { text = "Outline", value = "OUTLINE" },
-            { text = "Thick Outline", value = "THICKOUTLINE" },
-        }
-
-        for _, option in ipairs(options) do
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = option.text
-            info.value = option.value
-            info.checked = selected == option.value
-            info.func = function(btn)
-                addon.db.nameplateFriendlyNameOutline = btn.value
-                UIDropDownMenu_SetSelectedValue(outlineDropdown, btn.value)
-                UIDropDownMenu_SetText(outlineDropdown, option.text)
-                if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
-            end
-            UIDropDownMenu_AddButton(info)
-        end
+    local outlineDropdown = W.CreateChoiceDropdown(npFriendlyPanel, 160, {
+        { text = "None", value = "NONE" },
+        { text = "Outline", value = "OUTLINE" },
+        { text = "Thick Outline", value = "THICKOUTLINE" },
+    }, UpperDBChoice("nameplateFriendlyNameOutline", "OUTLINE"), function(value)
+        addon.db.nameplateFriendlyNameOutline = value
+        UpdateFriendlyNameplates()
     end)
+    outlineDropdown:SetPoint("TOPLEFT", outlineLabel, "BOTTOMLEFT", 0, -2)
+    W.AttachHover(outlineDropdown, { top = outlineLabel, body = "Outline drawn around friendly names." })
 
-    local selectedOutline = (addon.db.nameplateFriendlyNameOutline or "OUTLINE"):upper()
-    local outlineText = selectedOutline == "NONE" and "None" or (selectedOutline == "THICKOUTLINE" and "Thick Outline" or "Outline")
-    UIDropDownMenu_SetSelectedValue(outlineDropdown, selectedOutline)
-    UIDropDownMenu_SetText(outlineDropdown, outlineText)
+    local sizeSlider = CreateDBSlider(npFriendlyPanel, "Font Size", "nameplateFriendlyNameSize", 13, 8, 64, 1, 220, 0, nil, UpdateFriendlyNameplates)
+    sizeSlider:SetPoint("TOPLEFT", outlineLabel, "BOTTOMLEFT", 0, -62)
+    W.AttachHover(sizeSlider, { body = "Size of friendly names." })
 
-    local sizeSlider = CreateFrame("Slider", nil, npFriendlyPanel, "OptionsSliderTemplate")
-    sizeSlider:SetPoint("TOPLEFT", npFriendlyPanel, "TOPLEFT", npFriendlyLeftInset + 8, -232)
-    sizeSlider:SetMinMaxValues(8, 64)
-    sizeSlider:SetValueStep(1)
-    sizeSlider:SetObeyStepOnDrag(true)
-    sizeSlider:SetWidth(220)
-    sizeSlider.Low:SetText("8")
-    sizeSlider.High:SetText("64")
-    sizeSlider:SetValue(addon.db.nameplateFriendlyNameSize or 13)
-    sizeSlider.Text:SetText(string.format("Font Size: %d", addon.db.nameplateFriendlyNameSize or 13))
-    sizeSlider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value + 0.5)
-        addon.db.nameplateFriendlyNameSize = value
-        self.Text:SetText(string.format("Font Size: %d", value))
-        if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
-    end)
-
-    local xSlider = CreateFrame("Slider", nil, npFriendlyPanel, "OptionsSliderTemplate")
+    local xSlider = CreateDBSlider(npFriendlyPanel, "X Offset", "nameplateFriendlyNameOffsetX", 0, -100, 100, 1, 220, 0, nil, UpdateFriendlyNameplates)
     xSlider:SetPoint("TOPLEFT", sizeSlider, "BOTTOMLEFT", 0, -30)
-    xSlider:SetMinMaxValues(-100, 100)
-    xSlider:SetValueStep(1)
-    xSlider:SetObeyStepOnDrag(true)
-    xSlider:SetWidth(220)
-    xSlider.Low:SetText("-100")
-    xSlider.High:SetText("100")
-    xSlider:SetValue(addon.db.nameplateFriendlyNameOffsetX or 0)
-    xSlider.Text:SetText(string.format("X Offset: %d", addon.db.nameplateFriendlyNameOffsetX or 0))
-    xSlider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value + 0.5)
-        addon.db.nameplateFriendlyNameOffsetX = value
-        self.Text:SetText(string.format("X Offset: %d", value))
-        if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
-    end)
+    W.AttachHover(xSlider, { body = "Moves friendly names left or right of the nameplate's center." })
 
-    local ySlider = CreateFrame("Slider", nil, npFriendlyPanel, "OptionsSliderTemplate")
+    local ySlider = CreateDBSlider(npFriendlyPanel, "Y Offset", "nameplateFriendlyNameOffsetY", 10, -100, 100, 1, 220, 0, nil, UpdateFriendlyNameplates)
     ySlider:SetPoint("TOPLEFT", xSlider, "BOTTOMLEFT", 0, -30)
-    ySlider:SetMinMaxValues(-100, 100)
-    ySlider:SetValueStep(1)
-    ySlider:SetObeyStepOnDrag(true)
-    ySlider:SetWidth(220)
-    ySlider.Low:SetText("-100")
-    ySlider.High:SetText("100")
-    ySlider:SetValue(addon.db.nameplateFriendlyNameOffsetY or 10)
-    ySlider.Text:SetText(string.format("Y Offset: %d", addon.db.nameplateFriendlyNameOffsetY or 10))
-    ySlider:SetScript("OnValueChanged", function(self, value)
-        value = math.floor(value + 0.5)
-        addon.db.nameplateFriendlyNameOffsetY = value
-        self.Text:SetText(string.format("Y Offset: %d", value))
-        if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
-    end)
+    W.AttachHover(ySlider, { body = "Moves friendly names up or down from the nameplate." })
 
     local justifyLabel = npFriendlyPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     justifyLabel:SetPoint("TOPLEFT", ySlider, "BOTTOMLEFT", 0, -22)
     justifyLabel:SetText("Justification")
 
-    local justifyDropdown = CreateFrame("Frame", "GUIT_FriendlyNameJustifyDropdown", npFriendlyPanel, "UIDropDownMenuTemplate")
-    justifyDropdown:SetPoint("TOPLEFT", justifyLabel, "BOTTOMLEFT", -8, -2)
-    UIDropDownMenu_SetWidth(justifyDropdown, 120)
+    local justifyDropdown = W.CreateChoiceDropdown(npFriendlyPanel, 120, {
+        { text = "Left", value = "LEFT" },
+        { text = "Center", value = "CENTER" },
+        { text = "Right", value = "RIGHT" },
+    }, UpperDBChoice("nameplateFriendlyNameJustify", "CENTER"), function(value)
+        addon.db.nameplateFriendlyNameJustify = value
+        UpdateFriendlyNameplates()
+    end)
+    justifyDropdown:SetPoint("TOPLEFT", justifyLabel, "BOTTOMLEFT", 0, -2)
+    W.AttachHover(justifyDropdown, { top = justifyLabel, body = "Which edge of the name area friendly names line up against." })
 
-    UIDropDownMenu_Initialize(justifyDropdown, function(self, level)
-        local selected = (addon.db.nameplateFriendlyNameJustify or "CENTER"):upper()
-        local options = {
-            { text = "Left", value = "LEFT" },
-            { text = "Center", value = "CENTER" },
-            { text = "Right", value = "RIGHT" },
-        }
+    -- ====================
+    -- COOLDOWN TAB CONTENT
+    -- ====================
+    -- Lives after the nameplate section to use the font dropdown; scoped to stay under the local limit
+    do
+        local cdMouseGroup, cdMouseTitle = CreateSection(tabCooldowns, "Cooldown Timer at Mouse", "Shows the time remaining beside the cursor when you press a spell that is still on cooldown.", 380, "cooldownAtMouse")
 
-        for _, option in ipairs(options) do
-            local info = UIDropDownMenu_CreateInfo()
-            info.text = option.text
-            info.value = option.value
-            info.checked = selected == option.value
-            info.func = function(btn)
-                addon.db.nameplateFriendlyNameJustify = btn.value
-                UIDropDownMenu_SetSelectedValue(justifyDropdown, btn.value)
-                UIDropDownMenu_SetText(justifyDropdown, option.text)
-                if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
+        local cdMouseCheckbox = W.CreateCheckbox(cdMouseGroup)
+        cdMouseCheckbox:SetPoint("TOPLEFT", cdMouseTitle, "BOTTOMLEFT", 0, -12)
+        W.AttachHover(cdMouseCheckbox, { body = "When you press a spell that's still on cooldown, shows the time left beside your cursor." })
+        cdMouseCheckbox.Text:SetText("Show Cooldown Timer at Mouse")
+        cdMouseCheckbox:SetChecked(addon.db.cooldownAtMouseEnabled)
+
+        local cdMouseDurationSlider = CreateDBSlider(cdMouseGroup, "Duration (s)", "cooldownAtMouseDuration", 3.0, 1, 10, 0.5, 200, 1)
+        cdMouseDurationSlider:SetPoint("TOPLEFT", cdMouseCheckbox, "BOTTOMLEFT", 0, -28)
+        W.AttachHover(cdMouseDurationSlider, { body = "How long the timer stays beside the cursor, in seconds." })
+
+        local cdMouseOffsetSlider = CreateDBSlider(cdMouseGroup, "Offset Distance", "cooldownAtMouseOffset", 40, 0, 300, 1, 300)
+        cdMouseOffsetSlider:SetPoint("TOPLEFT", cdMouseDurationSlider, "BOTTOMLEFT", 0, -36)
+        W.AttachHover(cdMouseOffsetSlider, { body = "How far from the cursor the timer appears, in pixels." })
+
+        -- 0 is straight above the cursor
+        local cdMouseAngleSlider = CreateDBSlider(cdMouseGroup, "Offset Rotation (0 = above)", "cooldownAtMouseAngle", 90, 0, 355, 5, 300)
+        cdMouseAngleSlider:SetPoint("TOPLEFT", cdMouseOffsetSlider, "BOTTOMLEFT", 0, -36)
+        W.AttachHover(cdMouseAngleSlider, { body = "Which direction from the cursor the timer appears, in degrees clockwise from straight above: 90 is to the right, 180 below." })
+
+        local cdMouseSizeSlider = CreateDBSlider(cdMouseGroup, "Font Size", "cooldownAtMouseFontSize", 22, 8, 72, 1, 300, 0, nil,
+            function() addon:UpdateCooldownAtMouseFont() end)
+        cdMouseSizeSlider:SetPoint("TOPLEFT", cdMouseAngleSlider, "BOTTOMLEFT", 0, -36)
+        W.AttachHover(cdMouseSizeSlider, { body = "Size of the cooldown timer text." })
+
+        local cdMouseFontLabel = cdMouseGroup:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        cdMouseFontLabel:SetPoint("TOPLEFT", cdMouseSizeSlider, "BOTTOMLEFT", 0, -24)
+        cdMouseFontLabel:SetText("Typeface")
+
+        local cdMouseFontDropdown = CreateFontDropdown(cdMouseGroup,
+            function() return addon.db.cooldownAtMouseFont or "Fonts\\FRIZQT__.TTF" end,
+            function(path)
+                addon.db.cooldownAtMouseFont = path
+                addon:UpdateCooldownAtMouseFont()
+            end)
+        cdMouseFontDropdown:SetPoint("TOPLEFT", cdMouseFontLabel, "BOTTOMLEFT", 0, -2)
+        W.AttachHover(cdMouseFontDropdown, { top = cdMouseFontLabel, body = "Typeface for the cooldown timer." })
+
+        local function UpdateCooldownControls()
+            local enabled = addon.db.cooldownAtMouseEnabled
+            cdMouseDurationSlider:SetEnabled(enabled)
+            cdMouseOffsetSlider:SetEnabled(enabled)
+            cdMouseAngleSlider:SetEnabled(enabled)
+            cdMouseSizeSlider:SetEnabled(enabled)
+            cdMouseFontDropdown:SetEnabled(enabled)
+            W.SetFontStringEnabled(cdMouseFontLabel, enabled)
+        end
+        UpdateCooldownControls()
+
+        cdMouseCheckbox:SetScript("OnClick", function(self)
+            addon.db.cooldownAtMouseEnabled = self:GetChecked()
+            addon:SetCooldownAtMouseEnabled(addon.db.cooldownAtMouseEnabled)
+            UpdateCooldownControls()
+        end)
+    end
+
+    -- ====================
+    -- CHAT TEXT FONT (Chat tab; down here to use the font dropdown)
+    -- ====================
+    do
+        local chatFontGroup, chatFontTitle = CreateSection(tabChat, "Chat Text Font", "Change the typeface and size of the text in each chat window.", 270)
+        local selectedWindow = 1
+        local RefreshChatFontControls
+
+        local windowLabel = chatFontGroup:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        windowLabel:SetPoint("TOPLEFT", chatFontTitle, "BOTTOMLEFT", 0, -14)
+        windowLabel:SetText("Chat Window")
+
+        -- Options are rebuilt each time it opens, so new and renamed windows are listed
+        local windowDropdown = W.CreateChoiceDropdown(chatFontGroup, 210,
+            function()
+                local options = {}
+                for i, id in ipairs(addon:GetChatWindowIDs()) do
+                    options[i] = { text = addon:GetChatWindowName(id), value = id }
+                end
+                return options
+            end,
+            function() return selectedWindow end,
+            function(id)
+                selectedWindow = id
+                RefreshChatFontControls()
+            end)
+        windowDropdown:SetPoint("TOPLEFT", windowLabel, "BOTTOMLEFT", 0, -2)
+        W.AttachHover(windowDropdown, { top = windowLabel, body = "The chat window whose font the settings below change. Each window keeps its own." })
+
+        local fontLabel = chatFontGroup:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        fontLabel:SetPoint("TOPLEFT", windowLabel, "BOTTOMLEFT", 0, -46)
+        fontLabel:SetText("Typeface")
+
+        local fontDropdown = CreateFontDropdown(chatFontGroup,
+            function() return addon:GetChatFontOverride(selectedWindow).font end,
+            function(path) addon:SetChatFontOverride(selectedWindow, "font", path) end)
+        fontDropdown:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -2)
+        W.AttachHover(fontDropdown, { top = fontLabel, body = "Typeface for the text in the selected chat window." })
+
+        local sizeSlider = W.CreateSlider(chatFontGroup, {
+            label = "Font Size", min = 8, max = 32, step = 1, width = 300,
+            value = addon:GetChatFontSize(selectedWindow),
+            onChange = function(value) addon:SetChatFontOverride(selectedWindow, "size", value) end,
+        })
+        sizeSlider:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -62)
+        W.AttachHover(sizeSlider, { body = "Size of the text in the selected chat window." })
+
+        local resetButton = CreateFrame("Button", nil, chatFontGroup, "UIPanelButtonTemplate")
+        resetButton:SetPoint("TOPLEFT", sizeSlider, "BOTTOMLEFT", 0, -26)
+        resetButton:SetSize(160, 22)
+        resetButton:SetText("Reset This Window")
+
+        -- Shows the selected window's current font and size
+        function RefreshChatFontControls()
+            windowDropdown:Refresh()
+            fontDropdown:Refresh()
+            sizeSlider:SetValue(addon:GetChatFontSize(selectedWindow), true)
+        end
+
+        resetButton:SetScript("OnClick", function()
+            addon:ResetChatFont(selectedWindow)
+            RefreshChatFontControls()
+        end)
+
+        chatFontGroup:SetScript("OnShow", RefreshChatFontControls)
+        RefreshChatFontControls()
+    end
+
+    -- ====================
+    -- SPEED PANEL APPEARANCE (Speed tab; down here to use the font dropdown)
+    -- ====================
+    do
+        local speedLookGroup, speedLookTitle = CreateSection(tabSpeed, "Appearance", "Font, colors, background and border of the speed panel.", 460)
+
+        local function Apply()
+            addon:ApplySpeedPanelAppearance()
+        end
+
+        -- Dropdown over a list of { key = ..., name = ... } options
+        local function CreateChoiceDropdown(options, dbKey, defaultKey)
+            local choices = {}
+            for i, option in ipairs(options) do
+                choices[i] = { text = option.name, value = option.key }
             end
-            UIDropDownMenu_AddButton(info)
+            return CreateDBChoiceDropdown(speedLookGroup, 210, choices, dbKey, defaultKey, Apply)
         end
-    end)
 
-    local selectedJustify = (addon.db.nameplateFriendlyNameJustify or "CENTER"):upper()
-    local justifyText = selectedJustify == "LEFT" and "Left" or (selectedJustify == "RIGHT" and "Right" or "Center")
-    UIDropDownMenu_SetSelectedValue(justifyDropdown, selectedJustify)
-    UIDropDownMenu_SetText(justifyDropdown, justifyText)
+        -- A label with a clickable color square that opens the color picker (with opacity)
+        local function CreateColorRow(labelText, dbKey, default)
+            local row = CreateFrame("Frame", nil, speedLookGroup)
+            row:SetSize(260, 20)
 
-    -- ====================
-    -- CRAFTING TWEAKS TAB
-    -- ====================
-    local craftingOrderSection, craftingOrderTitle = CreateSection(tabCrafting, "Crafting Order Filters", "Remember the recipe filter settings on the Crafting Orders tab per profession.", 230)
+            local label = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+            label:SetPoint("LEFT", row, "LEFT", 0, 0)
+            label:SetText(labelText)
 
-    local rememberFiltersCheck = CreateFrame("CheckButton", nil, craftingOrderSection, "InterfaceOptionsCheckButtonTemplate")
-    rememberFiltersCheck:SetPoint("TOPLEFT", craftingOrderTitle, "BOTTOMLEFT", 0, -12)
-    rememberFiltersCheck.Text:SetText("Remember filters per profession (Have Materials, etc.)")
-    rememberFiltersCheck:SetChecked(addon.db.rememberCraftingOrderFilters ~= false)
-    rememberFiltersCheck:SetScript("OnClick", function(self)
-        addon.db.rememberCraftingOrderFilters = self:GetChecked()
-        if addon.SetCraftingOrderFilterMemoryEnabled then
-            addon:SetCraftingOrderFilterMemoryEnabled(addon.db.rememberCraftingOrderFilters)
+            local swatch = CreateFrame("Button", nil, row)
+            swatch:SetSize(20, 20)
+            swatch:SetPoint("LEFT", label, "RIGHT", 10, 0)
+            local border = swatch:CreateTexture(nil, "BACKGROUND")
+            border:SetAllPoints()
+            border:SetColorTexture(1, 1, 1, 1)
+            local fill = swatch:CreateTexture(nil, "ARTWORK")
+            fill:SetPoint("TOPLEFT", 1, -1)
+            fill:SetPoint("BOTTOMRIGHT", -1, 1)
+
+            local function Get()
+                return addon.db[dbKey] or default
+            end
+            local function Set(r, g, b, a)
+                addon.db[dbKey] = { r = r, g = g, b = b, a = a }
+                fill:SetColorTexture(r, g, b, 1)
+                Apply()
+            end
+            fill:SetColorTexture(Get().r, Get().g, Get().b, 1)
+
+            swatch:SetScript("OnClick", function()
+                if not ColorPickerFrame or not ColorPickerFrame.SetupColorPickerAndShow then
+                    return
+                end
+                local old = Get()
+                local function OnChanged()
+                    local r, g, b = ColorPickerFrame:GetColorRGB()
+                    Set(r, g, b, ColorPickerFrame:GetColorAlpha())
+                end
+                ColorPickerFrame:SetupColorPickerAndShow({
+                    r = old.r, g = old.g, b = old.b, opacity = old.a,
+                    hasOpacity = true,
+                    swatchFunc = OnChanged,
+                    opacityFunc = OnChanged,
+                    cancelFunc = function() Set(old.r, old.g, old.b, old.a) end,
+                })
+            end)
+
+            return row
         end
-    end)
 
-    local rememberFiltersInfo = craftingOrderSection:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    rememberFiltersInfo:SetPoint("TOPLEFT", rememberFiltersCheck, "BOTTOMLEFT", 4, -4)
-    rememberFiltersInfo:SetWidth(420)
-    rememberFiltersInfo:SetJustifyH("LEFT")
-    rememberFiltersInfo:SetText("Each profession saves its own filter set. Filters are saved when the panel closes and reapplied whenever you open the Orders tab.")
-
-    local professionColorsCheck = CreateFrame("CheckButton", nil, craftingOrderSection, "InterfaceOptionsCheckButtonTemplate")
-    professionColorsCheck:SetPoint("TOPLEFT", rememberFiltersInfo, "BOTTOMLEFT", -4, -16)
-    professionColorsCheck.Text:SetText("Enable recipe quality colors")
-    professionColorsCheck:SetChecked(addon.db.professionRecipeQualityColorEnabled ~= false)
-    professionColorsCheck:SetScript("OnClick", function(self)
-        addon.db.professionRecipeQualityColorEnabled = self:GetChecked()
-        if addon.SetProfessionRecipeQualityColorEnabled then
-            addon:SetProfessionRecipeQualityColorEnabled(addon.db.professionRecipeQualityColorEnabled)
+        local function CreateLabel(text, anchorTo, offsetY)
+            local label = speedLookGroup:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+            label:SetPoint("TOPLEFT", anchorTo, "BOTTOMLEFT", 0, offsetY)
+            label:SetText(text)
+            return label
         end
-    end)
 
-    local professionColorsInfo = craftingOrderSection:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    professionColorsInfo:SetPoint("TOPLEFT", professionColorsCheck, "BOTTOMLEFT", 4, -4)
-    professionColorsInfo:SetWidth(420)
-    professionColorsInfo:SetJustifyH("LEFT")
-    professionColorsInfo:SetText("Color recipe names by the quality of the crafted item in profession recipe lists.")
+        -- Text
+        local fontLabel = CreateLabel("Typeface", speedLookTitle, -14)
+        local fontDropdown = CreateFontDropdown(speedLookGroup,
+            function() return addon.db.speedPanelFont end,
+            function(path)
+                addon.db.speedPanelFont = path
+                Apply()
+            end)
+        fontDropdown:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -2)
+        W.AttachHover(fontDropdown, { top = fontLabel, body = "Typeface for the speed panel's text." })
 
-    local recipeTooltipCheck = CreateFrame("CheckButton", nil, craftingOrderSection, "InterfaceOptionsCheckButtonTemplate")
-    recipeTooltipCheck:SetPoint("TOPLEFT", professionColorsInfo, "BOTTOMLEFT", -4, -12)
-    recipeTooltipCheck.Text:SetText("Enable tooltips when hovering over recipe names")
-    recipeTooltipCheck:SetChecked(addon.db.professionRecipeNameTooltipEnabled == true)
-    recipeTooltipCheck:SetScript("OnClick", function(self)
-        addon.db.professionRecipeNameTooltipEnabled = self:GetChecked()
-    end)
+        local outlineLabel = CreateLabel("Outline", fontLabel, -46)
+        local outlineDropdown = CreateChoiceDropdown(addon:GetSpeedPanelOutlineOptions(), "speedPanelFontOutline", "NONE")
+        outlineDropdown:SetPoint("TOPLEFT", outlineLabel, "BOTTOMLEFT", 0, -2)
+        W.AttachHover(outlineDropdown, { top = outlineLabel, body = "Outline drawn around the speed panel's text." })
 
-    local recipeTooltipInfo = craftingOrderSection:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    recipeTooltipInfo:SetPoint("TOPLEFT", recipeTooltipCheck, "BOTTOMLEFT", 4, -4)
-    recipeTooltipInfo:SetWidth(420)
-    recipeTooltipInfo:SetJustifyH("LEFT")
-    recipeTooltipInfo:SetText("When enabled, mousing over a recipe name in the professions list shows that recipe's tooltip.")
+        local sizeSlider = CreateDBSlider(speedLookGroup, "Font Size", "speedPanelFontSize", 16, 8, 40, 1, 300, 0, nil, Apply)
+        sizeSlider:SetPoint("TOPLEFT", outlineLabel, "BOTTOMLEFT", 0, -62)
+        W.AttachHover(sizeSlider, { body = "Size of the speed panel's text." })
+
+        local textColorRow = CreateColorRow("Text Color", "speedPanelTextColor", { r = 1, g = 1, b = 1, a = 1 })
+        textColorRow:SetPoint("TOPLEFT", sizeSlider, "BOTTOMLEFT", 0, -28)
+
+        -- Background
+        local backgroundLabel = CreateLabel("Background", textColorRow, -18)
+        local backgroundDropdown = CreateChoiceDropdown(addon:GetSpeedPanelBackgroundOptions(), "speedPanelBackgroundKey", "dialog")
+        backgroundDropdown:SetPoint("TOPLEFT", backgroundLabel, "BOTTOMLEFT", 0, -2)
+        W.AttachHover(backgroundDropdown, { top = backgroundLabel, body = "Texture filling the speed panel's background. Its color is set below." })
+
+        local backgroundColorRow = CreateColorRow("Background Color / Opacity", "speedPanelBackgroundColor", { r = 0, g = 0, b = 0, a = 0.55 })
+        backgroundColorRow:SetPoint("TOPLEFT", backgroundLabel, "BOTTOMLEFT", 0, -46)
+
+        -- Border
+        local borderLabel = CreateLabel("Border", backgroundColorRow, -18)
+        local borderDropdown = CreateChoiceDropdown(addon:GetSpeedPanelBorderOptions(), "speedPanelBorderKey", "tooltip")
+        borderDropdown:SetPoint("TOPLEFT", borderLabel, "BOTTOMLEFT", 0, -2)
+        W.AttachHover(borderDropdown, { top = borderLabel, body = "Border drawn around the speed panel. Its color is set below." })
+
+        local borderColorRow = CreateColorRow("Border Color (shown when locked)", "speedPanelBorderColor", { r = 0.4, g = 0.4, b = 0.4, a = 0.9 })
+        borderColorRow:SetPoint("TOPLEFT", borderLabel, "BOTTOMLEFT", 0, -46)
+    end
 
     addon.settingsPanel = panel
     addon.settingsPages = addon.settingsPages or {}
@@ -1635,16 +1425,21 @@ function addon:CreateSettingsPanel()
         addon.settingsCategory = category
         addon.settingsSubcategories = addon.settingsSubcategories or {}
 
+        -- Pages with nothing viable on this client are left out of the list
         for _, page in ipairs(orderedPages) do
-            local sub = Settings.RegisterCanvasLayoutSubcategory(category, page.frame, page.name)
-            addon.settingsSubcategories[page.id] = sub
+            if page.visibleSections > 0 then
+                local sub = Settings.RegisterCanvasLayoutSubcategory(category, page.frame, page.name)
+                addon.settingsSubcategories[page.id] = sub
+            end
         end
     else
         InterfaceOptions_AddCategory(panel)
         for _, page in ipairs(orderedPages) do
-            page.frame.parent = panel.name
-            page.frame.name = page.name
-            InterfaceOptions_AddCategory(page.frame)
+            if page.visibleSections > 0 then
+                page.frame.parent = panel.name
+                page.frame.name = page.name
+                InterfaceOptions_AddCategory(page.frame)
+            end
         end
     end
 end

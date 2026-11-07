@@ -1,0 +1,21 @@
+## Interface: 120005, 16001
+## Title: Garage UI Tweaks
+## Notes: Customizable UI tweaks for World of Warcraft
+## Author: j__r0d
+## Version: 1.0.0
+## Category-enUS: j__r0d's garage
+## SavedVariables: GarageUITweaksDB
+
+Core.lua
+Compat.lua
+Utils.lua
+ErrorTextBackground.lua
+BattlegroundMap.lua
+SpeedPanel.lua
+CooldownAtMouse.lua
+ChatTweaks.lua
+Tweaks.lua
+RaidPartyFrames.lua
+BackgroundPanel.lua
+SettingsWidgets.lua
+Settings.lua
