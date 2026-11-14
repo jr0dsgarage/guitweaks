@@ -13,6 +13,7 @@ ErrorTextBackground.lua
 BattlegroundMap.lua
 SpeedPanel.lua
 CooldownAtMouse.lua
+DamageNumbers.lua
 ChatTweaks.lua
 Tweaks.lua
 RaidPartyFrames.lua

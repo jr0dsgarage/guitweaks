@@ -119,6 +119,7 @@ function addon:CreateSettingsPanel()
     local tabChat = CreateSettingsPage("chat", "Chat Tweaks", "Customize chat behavior and chat frame controls.")
     local tabSpeed = CreateSettingsPage("speed", "Speed Panel Tweaks", "Configure movement speed display options.")
     local tabCooldowns = CreateSettingsPage("cooldowns", "Cooldown Tweaks", "Configure cooldown display options.")
+    local tabCombatText = CreateSettingsPage("combattext", "Combat Text Tweaks", "Adjust where the damage numbers above enemies appear.")
     local tabNameplates = CreateSettingsPage("nameplates", "Nameplate Tweaks", "Configure friendly nameplate appearance.")
     local tabBackground = CreateSettingsPage("background", "Background Panel Tweaks", "Background panel and visual backdrop options.")
 
@@ -1011,9 +1012,11 @@ function addon:CreateSettingsPanel()
         if font == nil then
             previewFontCount = previewFontCount + 1
             font = CreateFont("GUIT_FontPreview" .. previewFontCount)
-            -- Only an explicit false is a failure; SetFont returns nothing on success here
-            if font:SetFont(path, 14, "") == false then
-                font = false -- font file missing; fall back to the default menu font
+            -- A missing font file raises an error on some clients and returns false on
+            -- others; SetFont returns nothing on success here
+            local ok, result = pcall(font.SetFont, font, path, 14, "")
+            if not ok or result == false then
+                font = false -- font file missing; left out of the menu
             end
             previewFonts[path] = font
         end
@@ -1027,7 +1030,13 @@ function addon:CreateSettingsPanel()
         local dropdown = W.CreateDropdown(parent, 210, function(_, rootDescription)
             local _, grouped, groupOrder = BuildFriendlyFontList()
             for _, group in ipairs(groupOrder) do
-                local fontsInGroup = grouped[group] or {}
+                -- Only fonts whose file loads; the FontMagic lists name files that may not be installed
+                local fontsInGroup = {}
+                for _, item in ipairs(grouped[group] or {}) do
+                    if GetPreviewFont(item.path) then
+                        table.insert(fontsInGroup, item)
+                    end
+                end
                 if #fontsInGroup > 0 then
                     local groupDescription = rootDescription:CreateButton(group)
                     for _, item in ipairs(fontsInGroup) do
@@ -1224,6 +1233,56 @@ function addon:CreateSettingsPanel()
             addon:SetCooldownAtMouseEnabled(addon.db.cooldownAtMouseEnabled)
             UpdateCooldownControls()
         end)
+    end
+
+    -- ====================
+    -- COMBAT TEXT TAB CONTENT
+    -- ====================
+    -- The sliders show the live CVar values, re-read whenever a section is shown,
+    -- rather than a saved copy (see DamageNumbers.lua)
+    do
+        -- A section with one slider per setting in `group`, then a reset button
+        local function CreateDamageNumberSection(group, titleText, descriptionText, featureID)
+            local settings = addon:GetDamageNumberSettings(group)
+            local section, sectionTitle = CreateSection(tabCombatText, titleText, descriptionText, 80 + #settings * 56, featureID)
+
+            local sliders = {}
+            local anchor, gap = sectionTitle, -28
+            for _, setting in ipairs(settings) do
+                local key = setting.key
+                local slider = W.CreateSlider(section, {
+                    label = setting.label, min = setting.min, max = setting.max, step = setting.step,
+                    decimals = setting.decimals, width = 300,
+                    value = addon:GetDamageNumberSetting(key),
+                    onChange = function(value) addon:SetDamageNumberSetting(key, value) end,
+                })
+                slider:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, gap)
+                W.AttachHover(slider, { body = setting.tooltip })
+                sliders[key] = slider
+                anchor, gap = slider, -36
+            end
+
+            local resetButton = CreateFrame("Button", nil, section, "UIPanelButtonTemplate")
+            resetButton:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -26)
+            resetButton:SetSize(160, 22)
+            resetButton:SetText("Reset to Defaults")
+            W.AttachHover(resetButton, { body = "Puts the settings in this section back to the game's defaults." })
+
+            local function Refresh()
+                for key, slider in pairs(sliders) do
+                    slider:SetValue(addon:GetDamageNumberSetting(key), true)
+                end
+            end
+
+            resetButton:SetScript("OnClick", function()
+                addon:ResetDamageNumberSettings(group)
+                Refresh()
+            end)
+            section:SetScript("OnShow", Refresh)
+        end
+
+        CreateDamageNumberSection("position", "Damage Number Position", "Move the damage numbers above enemies higher or lower.", "damageNumberPosition")
+        CreateDamageNumberSection("spread", "Damage Number Spread", "Control how damage numbers scatter and drift.", "damageNumberSpread")
     end
 
     -- ====================

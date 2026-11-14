@@ -23,6 +23,9 @@ local features = {
         return Enum.NamePlateSimplifiedType ~= nil and Enum.NamePlateSimplifiedType.FriendlyPlayer ~= nil
             and C_CVar.GetCVarBitfield ~= nil and C_CVar.SetCVarBitfield ~= nil
     end,
+    -- The CVars the engine places damage numbers with (see DamageNumbers.lua)
+    damageNumberPosition = function() return addon:HasDamageNumberSettings("position") end,
+    damageNumberSpread = function() return addon:HasDamageNumberSettings("spread") end,
 }
 
 -- Checked on first use rather than at load, so Blizzard code that loads after us is counted
