@@ -9,7 +9,6 @@ Quality-of-life UI tweaks for World of Warcraft. Type `/guit` in game to open th
 - Timed background behind UI error text for quick readability without lingering.
 - Adjustable height for the vehicle / override action bar.
 - Hide the micro menu's background and border art.
-- Prey hunt progress as a percentage on the encounter bar (Retail).
 - Outline the action buttons that equip your current armor set (Retail).
 
 ### Frames

@@ -18,7 +18,6 @@ SelfCombatText.lua
 ChatTweaks.lua
 Nameplates.lua
 ArmorSetHighlight.lua
-PreyPercent.lua
 RaidPartyFrames.lua
 BackgroundPanel.lua
 SettingsWidgets.lua

@@ -8,7 +8,7 @@ A World of Warcraft addon (Lua, WoW addon API) of independent quality-of-life UI
 - [`Core.lua`](../Core.lua): every saved setting and its default (`DEFAULTS`), database start-up, `ApplyTweaks`, slash commands
 - [`Compat.lua`](../Compat.lua): features that only work on one client
 - [`Utils.lua`](../Utils.lua): shared helpers (printing, saved frame positions, `NextFrameOnce`, `SetFontOrFallback`, `ResetSettings`)
-- One file per tweak: `ErrorTextBackground`, `FrameTweaks` (small changes to Blizzard frames), `SpeedPanel`, `CooldownAtMouse`, `DamageNumbers`, `SelfCombatText`, `ChatTweaks`, `Nameplates`, `ArmorSetHighlight`, `PreyPercent`, `RaidPartyFrames`, `BackgroundPanel`
+- One file per tweak: `ErrorTextBackground`, `FrameTweaks` (small changes to Blizzard frames), `SpeedPanel`, `CooldownAtMouse`, `DamageNumbers`, `SelfCombatText`, `ChatTweaks`, `Nameplates`, `ArmorSetHighlight`, `RaidPartyFrames`, `BackgroundPanel`
 - [`SettingsWidgets.lua`](../SettingsWidgets.lua): settings controls shared by every j__r0d's garage addon. Kept identical across them; edit one copy, then copy it to the others.
 - [`Settings.lua`](../Settings.lua): the settings pages, one builder function per page
 

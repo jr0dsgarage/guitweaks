@@ -8,7 +8,6 @@ addon.isRetail = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
 -- treated as supported everywhere. Test for the API the feature actually uses
 -- where there is one; fall back to the client flag for features tied to a game system.
 local features = {
-    preyPercent = function() return addon.isRetail end,
     -- Forever exposes C_AssistedCombat but the highlight doesn't work there, so no API test
     armorSetHighlight = function() return addon.isRetail end,
     cooldownAtMouse = function() return C_Spell ~= nil and C_Spell.GetSpellCooldown ~= nil end,

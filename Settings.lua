@@ -459,13 +459,6 @@ local function BuildGeneralPage(page)
         "Raises the vehicle / override action bar this many pixels above the bottom of the screen.")
     overrideOffset:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -28)
 
-    -- Prey percentage
-    section, title = CreateSection(page, "Encounter Bar", "Show the prey's health percentage on the encounter bar when hunting prey in outdoor zones.", 80, "preyPercent")
-    CreateDBCheckbox(section, "Show prey encounter percentage", "encounterBarPreyPercentEnabled",
-        "While hunting prey outdoors, shows the prey's remaining health as a percentage on the encounter bar.",
-        function() addon:UpdatePreyPercent() end)
-        :SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -10)
-
     -- Armor set highlights
     section, title = CreateSection(page, "Armor Set Action Highlights", "Outline action buttons that trigger your currently equipped armor set.", 80, "armorSetHighlight")
     CreateDBCheckbox(section, "Use assisted-combat style outline for equipped set buttons", "armorSetActionHighlightEnabled",

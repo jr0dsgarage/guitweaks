@@ -33,9 +33,8 @@ local DEFAULTS = {
     centerRaidFramesEnabled = false,
     centerFramesDebug = false,
 
-    -- Action bars and encounter bar (ArmorSetHighlight.lua, PreyPercent.lua)
+    -- Armor set highlights (ArmorSetHighlight.lua)
     armorSetActionHighlightEnabled = false,
-    encounterBarPreyPercentEnabled = false,
 
     -- Speed panel (SpeedPanel.lua)
     speedPanelEnabled = false,
@@ -109,6 +108,7 @@ addon.defaults = DEFAULTS
 local OBSOLETE = {
     "enabled", -- the old "Enable Garage UI Tweaks" checkbox, which never did anything
     "chatPaneExtend",
+    "encounterBarPreyPercentEnabled", -- the prey percentage tweak, since removed
 }
 
 local function InitDatabase()
@@ -142,7 +142,6 @@ local TWEAKS = {
     "UpdateMicroMenuArt",
     "UpdateRaidPartyFrameCentering",
     "UpdateArmorSetHighlights",
-    "UpdatePreyPercent",
     "UpdateSpeedPanel",
     "UpdateCooldownAtMouse",
     "UpdateSelfCombatText",
