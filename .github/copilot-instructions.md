@@ -2,113 +2,40 @@
 
 ## Architecture Overview
 
-This is a World of Warcraft addon built using Lua and WoW's addon API. The addon provides quality-of-life UI tweaks including error text backgrounds, battleground map scaling, speed panels, and personal resource display customization.
+A World of Warcraft addon (Lua, WoW addon API) of independent quality-of-life UI tweaks. It loads on both Retail and WoW Forever.
 
-**Core Components:**
-- [`Core.lua`](../Core.lua): Main initialization, event handling, addon namespace setup
-- [`Settings.lua`](../Settings.lua): Complex tabbed settings panel (1000+ lines) using WoW's Interface Options API
-- [`Utils.lua`](../Utils.lua): Shared utilities for printing, CVars, frame positioning, and backdrops
-- Feature modules: [`ErrorTextBackground.lua`](../ErrorTextBackground.lua), [`BattlegroundMap.lua`](../BattlegroundMap.lua), [`SpeedPanel.lua`](../SpeedPanel.lua), etc.
+**Files** (load order is [`guitweaks.toc`](../guitweaks.toc)):
+- [`Core.lua`](../Core.lua): every saved setting and its default (`DEFAULTS`), database start-up, `ApplyTweaks`, slash commands
+- [`Compat.lua`](../Compat.lua): features that only work on one client
+- [`Utils.lua`](../Utils.lua): shared helpers (printing, saved frame positions, `NextFrameOnce`, `SetFontOrFallback`, `ResetSettings`)
+- One file per tweak: `ErrorTextBackground`, `FrameTweaks` (small changes to Blizzard frames), `SpeedPanel`, `CooldownAtMouse`, `DamageNumbers`, `SelfCombatText`, `ChatTweaks`, `Nameplates`, `ArmorSetHighlight`, `PreyPercent`, `RaidPartyFrames`, `BackgroundPanel`
+- [`SettingsWidgets.lua`](../SettingsWidgets.lua): settings controls shared by every j__r0d's garage addon. Kept identical across them; edit one copy, then copy it to the others.
+- [`Settings.lua`](../Settings.lua): the settings pages, one builder function per page
 
-**Load Order:** Defined in [`guitweaks.toc`](../guitweaks.toc) - Core.lua loads first, then Utils, then feature modules, finally Settings.lua
+## Conventions
 
-## WoW Addon Conventions
+**One update function per tweak.** Each tweak has `addon:Update<Tweak>()`, which applies the saved settings and can run any number of times. `ApplyTweaks` in Core.lua calls them all at load. A settings control stores its value in `addon.db` and then calls its tweak's Update. Don't call `ApplyTweaks` from a control.
 
-**SavedVariables Pattern:**
-- Global state persists in `GarageUITweaksDB` table (declared in .toc)
-- Access via `addon.db` reference set during initialization
-- Apply defaults for missing keys but preserve user settings on reload
-- Use simple table structure, not nested profiles (see [`Core.lua:14-60`](../Core.lua#L14-L60))
+**Leave Blizzard alone until asked.** While a tweak is off and has never been on, it doesn't touch Blizzard's frames, hooks or CVars. When it's turned off again, it puts back only what it changed. Examples: `FrameTweaks.lua` captures a frame's own anchor or strata before the first change, and `ChatTweaks.lua` shows a button again only if it was showing when hidden. Register events only while a tweak is on.
 
-**Event-Driven Architecture:**
-```lua
--- Standard pattern: Register events on a frame, handle in OnEvent
-GUITweaks:RegisterEvent("ADDON_LOADED")
-GUITweaks:SetScript("OnEvent", function(self, event, ...)
-    if event == "ADDON_LOADED" and ... == addonName then
-        addon:OnInitialize()
-    end
-end)
-```
+**Settings and defaults.** Every setting has its default in `DEFAULTS` in Core.lua, and nowhere else: code reads `addon.db.key` without `or default` fallbacks. Reset buttons use `addon:ResetSettings({ keys })`. A setting earlier versions saved that nothing uses goes in `OBSOLETE`.
 
-**Namespace Pattern:**
-- Every file starts with `local addonName, addon = ...`
-- This provides access to shared addon namespace
-- Store shared data in addon table (e.g., `addon.frame`, `addon.db`)
-- Suppress lint warnings: `---@diagnostic disable: undefined-global` at top of files
+**State lives in locals.** Keep per-frame bookkeeping in file-local (weak-keyed where frames come and go) tables, not as fields on Blizzard's frames.
 
-## Critical Workflows
+**Saved positions are measured from the screen's center** (`addon:AnchorToScreenCenter`, `SaveFramePosition`, `RestoreFramePosition`), so frames keep their place when the resolution changes.
 
-**Testing Changes:**
-1. Save modified .lua files
-2. In-game: `/reload` to reload UI
-3. Access settings: `/guit` or `/guitweaks`
-4. Check for Lua errors: Red error box or `/console scriptErrors 1`
+**Client differences.** A tweak that only works on one client gets a predicate in Compat.lua's `features` table (test for the API it uses; use `addon.isRetail` only when there is no API to test). Its Update returns early when `addon:IsFeatureSupported("id")` is false, and its settings section passes the feature id as `CreateSection`'s last argument so it is left out of the page.
 
-**CVar Management:**
-- Use `addon:SetCVar(cvar, value)` from Utils.lua (checks if value changed first)
+**Adding a setting:**
+1. Add its default to `DEFAULTS` in Core.lua.
+2. Add a control in the page's builder in Settings.lua: `CreateDBCheckbox`, `CreateDBSlider`, `CreateDBChoiceDropdown`, `CreateDBFontDropdown` or `CreateColorSwatch`, passing the tweak's Update as the apply function.
+3. Read `addon.db.yourSetting` in the tweak's Update.
 
-**Adding New Settings:**
-1. Add default value to `defaults.profile` in [`Core.lua`](../Core.lua#L14-L60)
-2. Create UI controls in appropriate tab section in [`Settings.lua`](../Settings.lua)
-3. Use standard WoW templates: `InterfaceOptionsCheckButtonTemplate`, `InterfaceOptionsSliderTemplate`
-4. Link checkbox/slider to `addon.db.yourSettingKey`
+**Style:** every file starts with `---@diagnostic disable: undefined-global`, a `-- Garage UI Tweaks - <Name>` line and a comment on what the file does, then `local addonName, addon = ...`. Local functions are PascalCase. Comments say why, not what.
 
-**Client Compatibility (Retail vs Forever):**
-- The addon loads on both clients; a setting that only works on one must be registered in [`Compat.lua`](../Compat.lua)
-- Add a predicate to the `features` table (test for the API the feature uses; use `addon.isRetail` only when there is no API to test)
-- Pass the feature id as the 5th argument to `CreateSection` in Settings.lua so the section is hidden and the layout closes up
-- Guard the feature's call in `addon:ApplyTweaks()` with `self:IsFeatureSupported("id")`
+## Testing
 
-## Project-Specific Patterns
-
-**Frame Positioning with Dragging:**
-```lua
--- Standard pattern for moveable frames (see SpeedPanel.lua)
-frame:SetMovable(true)
-frame:EnableMouse(true)
-frame:RegisterForDrag("LeftButton")
-frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
-frame:SetScript("OnDragStop", function(self)
-    self:StopMovingOrSizing()
-    addon:SaveFramePosition(self, "speedPanelPosition")
-end)
-```
-
-**LibSharedMedia-3.0 Integration:**
-- Optional dependency for custom fonts/textures (see Settings.lua)
-- Always check if LSM exists: `local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)`
-- Fallback to default WoW fonts if LSM not available
-
-**Backdrop Pattern (Dragonflight+):**
-```lua
--- Modern WoW requires BackdropTemplateMixin
-if not frame.SetBackdrop then
-    Mixin(frame, BackdropTemplateMixin)
-end
-frame:SetBackdrop({...})
-```
-
-## Common WoW API Patterns
-
-**Timer API:**
-```lua
-C_Timer.After(delaySeconds, function() ... end)  -- One-shot timer
-C_Timer.NewTicker(interval, function() ... end)  -- Repeating ticker
-```
-
-**Unit API:**
-- `UnitExists("player")`, `UnitExists("target")`
-- `UnitAffectingCombat("player")` - check combat status
-- `UnitCanAttack("player", "target")` - check if target is enemy
-
-**Color Tables:**
-```lua
-{r=1.0, g=0.5, b=0.0, a=0.8}  -- Standard format for all color settings
-```
-
-## Debugging Tips
-
-- Enable debug output: Check if `addon.db.debug` exists before printing
-- Print helper: `addon:Print(msg)` adds green `[GarageT]` prefix
-- Common issues: Frame not updating → check if events are registered, CVars reverting → check if other addons conflict
+1. Save the changed files.
+2. In game: `/reload`.
+3. `/guit` opens the settings; `/guit debug` lists the raid and party frames' positions.
+4. Lua errors: `/console scriptErrors 1`.

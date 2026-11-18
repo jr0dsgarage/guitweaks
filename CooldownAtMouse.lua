@@ -2,10 +2,6 @@
 -- Garage UI Tweaks - Cooldown Timer at Mouse
 local addonName, addon = ...
 
-local DEFAULT_DURATION = 3.0
-local DEFAULT_OFFSET = 40
-local DEFAULT_ANGLE = 90
-local DEFAULT_FONT_SIZE = 22
 local REFRESH_INTERVAL = 0.1
 local GCD_MAX_DURATION = 1.5
 
@@ -16,9 +12,7 @@ local activeCooldown   -- duration object (12.x) or cooldown info table (older c
 local hideAt
 local refreshElapsed = 0
 
-local function IsSecret(value)
-    return issecretvalue ~= nil and issecretvalue(value)
-end
+local IsSecret = addon.IsSecret
 
 -- Returns the spell's cooldown if it is on a real (non-GCD) cooldown.
 -- Cooldown numbers are secret in combat on 12.x, so only the never-secret
@@ -110,9 +104,9 @@ end
 local function UpdatePosition()
     local x, y = GetCursorPosition()
     local scale = UIParent:GetEffectiveScale()
-    local offset = addon.db.cooldownAtMouseOffset or DEFAULT_OFFSET
+    local offset = addon.db.cooldownAtMouseOffset
     -- 0 degrees is straight above the cursor, increasing clockwise
-    local angle = math.rad(addon.db.cooldownAtMouseAngle or DEFAULT_ANGLE)
+    local angle = math.rad(addon.db.cooldownAtMouseAngle)
     display:ClearAllPoints()
     display:SetPoint("CENTER", UIParent, "BOTTOMLEFT", (x / scale) + offset * math.sin(angle), (y / scale) + offset * math.cos(angle))
 end
@@ -146,16 +140,8 @@ local function OnUpdate(_, elapsed)
     UpdateText()
 end
 
-function addon:UpdateCooldownAtMouseFont()
-    if not display then
-        return
-    end
-
-    local size = self.db.cooldownAtMouseFontSize or DEFAULT_FONT_SIZE
-    -- Only an explicit false is a failure; SetFont returns nothing on success here
-    if display.text:SetFont(self.db.cooldownAtMouseFont or STANDARD_TEXT_FONT, size, "OUTLINE") == false then
-        display.text:SetFont(STANDARD_TEXT_FONT, size, "OUTLINE")
-    end
+local function ApplyFont()
+    addon.SetFontOrFallback(display.text, addon.db.cooldownAtMouseFont, addon.db.cooldownAtMouseFontSize, "OUTLINE")
 end
 
 local function EnsureDisplay()
@@ -169,7 +155,7 @@ local function EnsureDisplay()
     display:Hide()
 
     display.text = display:CreateFontString(nil, "OVERLAY")
-    addon:UpdateCooldownAtMouseFont()
+    ApplyFont()
     display.text:SetTextColor(1, 0.82, 0)
     display.text:SetPoint("CENTER", display, "CENTER", 0, 0)
 
@@ -185,7 +171,7 @@ local function ShowCooldown(spellID)
     EnsureDisplay()
     activeSpellID = spellID
     activeCooldown = cooldown
-    hideAt = GetTime() + (addon.db.cooldownAtMouseDuration or DEFAULT_DURATION)
+    hideAt = GetTime() + addon.db.cooldownAtMouseDuration
     refreshElapsed = 0
 
     UpdatePosition()
@@ -193,12 +179,16 @@ local function ShowCooldown(spellID)
     display:Show()
 end
 
-function addon:SetCooldownAtMouseEnabled(enabled)
+function addon:UpdateCooldownAtMouse()
     if not self:IsFeatureSupported("cooldownAtMouse") then
         return
     end
 
-    if not enabled then
+    if display then
+        ApplyFont()
+    end
+
+    if not self.db.cooldownAtMouseEnabled then
         if eventFrame then
             eventFrame:UnregisterAllEvents()
         end

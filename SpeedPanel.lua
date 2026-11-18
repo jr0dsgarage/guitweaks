@@ -1,447 +1,241 @@
 ---@diagnostic disable: undefined-global
 -- Garage UI Tweaks - Speed Panel
+-- A movable panel showing your movement speed, as a percentage of normal run speed and in
+-- yards per second.
 local addonName, addon = ...
 
 local BASE_RUN_SPEED = 7 -- yards per second on foot with no bonuses; this is 100%
-local SPEED_UPDATE_INTERVAL = 0.05
-local FALLBACK_SAMPLE_INTERVAL = 0.25
-local MAX_SPEED_TEXT = "Speed: 9999% (999.9 yd/s)"
+local UPDATE_INTERVAL = 0.05
+local SAMPLE_INTERVAL = 0.25
+local WIDEST_TEXT = "Speed: 9999% (999.9 yd/s)" -- sizes the panel, so it never resizes while you move
+local DEFAULT_POSITION = { "CENTER", 0, -200 }
+local UNLOCKED_BORDER_COLOR = { 0.8, 0.8, 0.2, 0.9 } -- yellow marks the panel as movable
 
-local DEFAULT_FONT_SIZE = 16
-local DEFAULT_BACKGROUND_KEY = "dialog"
-local DEFAULT_BORDER_KEY = "tooltip"
-
-local SPEED_PANEL_OUTLINE_OPTIONS = {
+local OUTLINE_OPTIONS = {
     { key = "NONE", name = "None", flags = "" },
     { key = "OUTLINE", name = "Outline", flags = "OUTLINE" },
     { key = "THICKOUTLINE", name = "Thick Outline", flags = "THICKOUTLINE" },
 }
 
-local SPEED_PANEL_BACKGROUND_OPTIONS = {
+local BACKGROUND_OPTIONS = {
     { key = "dialog", name = "Dialog", texture = "Interface\\DialogFrame\\UI-DialogBox-Background" },
     { key = "tooltip", name = "Tooltip", texture = "Interface\\Tooltips\\UI-Tooltip-Background" },
     { key = "solid", name = "Solid", texture = "Interface\\Buttons\\WHITE8x8" },
     { key = "none", name = "None", texture = nil },
 }
 
-local SPEED_PANEL_BORDER_OPTIONS = {
+local BORDER_OPTIONS = {
     { key = "tooltip", name = "Tooltip", texture = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12, insets = { left = 3, right = 3, top = 3, bottom = 3 } },
     { key = "dialog", name = "Dialog", texture = "Interface\\DialogFrame\\UI-DialogBox-Border", edgeSize = 24, insets = { left = 12, right = 12, top = 12, bottom = 12 } },
     { key = "thin", name = "Thin", texture = "Interface\\AchievementFrame\\UI-Achievement-StatsBorder", edgeSize = 8, insets = { left = 3, right = 3, top = 3, bottom = 3 } },
     { key = "none", name = "None", texture = nil, edgeSize = 0, insets = { left = 0, right = 0, top = 0, bottom = 0 } },
 }
 
-local OUTLINE_LOOKUP = {}
-local BACKGROUND_LOOKUP = {}
-local BORDER_LOOKUP = {}
-
-local updateSpeedPanelText
-
-for _, option in ipairs(SPEED_PANEL_OUTLINE_OPTIONS) do
-    OUTLINE_LOOKUP[option.key] = option
-end
-
-local function sizeSpeedPanelFrame(frame)
-    if not frame or not frame.text then
-        return
+local function IndexByKey(options)
+    local byKey = {}
+    for _, option in ipairs(options) do
+        byKey[option.key] = option
     end
-
-    local originalText = frame.text:GetText()
-    frame.text:SetText(MAX_SPEED_TEXT)
-    local width = frame.text:GetStringWidth() or 0
-    local height = frame.text:GetStringHeight() or 0
-    frame:SetSize(math.max(160, width + 24), math.max(36, height + 16))
-    frame.text:SetText(originalText)
+    return byKey
 end
 
-local function getBackgroundOption(key)
-    return (key and BACKGROUND_LOOKUP[key]) or BACKGROUND_LOOKUP[DEFAULT_BACKGROUND_KEY] or SPEED_PANEL_BACKGROUND_OPTIONS[1]
-end
+local OUTLINES = IndexByKey(OUTLINE_OPTIONS)
+local BACKGROUNDS = IndexByKey(BACKGROUND_OPTIONS)
+local BORDERS = IndexByKey(BORDER_OPTIONS)
 
-local function getBorderOption(key)
-    return (key and BORDER_LOOKUP[key]) or BORDER_LOOKUP[DEFAULT_BORDER_KEY] or SPEED_PANEL_BORDER_OPTIONS[1]
-end
+local panel -- created on first use
+local sample = {} -- the last position sampled, for GetSampledSpeed
+local shownPercent, shownYards
+local sinceUpdate = 0
 
+-- For the settings panel's dropdowns: lists of { key, name }
 function addon:GetSpeedPanelOutlineOptions()
-    return SPEED_PANEL_OUTLINE_OPTIONS
+    return OUTLINE_OPTIONS
 end
 
 function addon:GetSpeedPanelBackgroundOptions()
-    return SPEED_PANEL_BACKGROUND_OPTIONS
+    return BACKGROUND_OPTIONS
 end
 
 function addon:GetSpeedPanelBorderOptions()
-    return SPEED_PANEL_BORDER_OPTIONS
+    return BORDER_OPTIONS
 end
 
-function addon:GetSpeedPanelBackgroundName(key)
-    local option = getBackgroundOption(key)
-    return option and option.name or key or "Unknown"
-end
+-- ============================================================================
+-- Measuring speed
+-- ============================================================================
 
-function addon:GetSpeedPanelBorderName(key)
-    local option = getBorderOption(key)
-    return option and option.name or key or "Unknown"
-end
-
-function addon:SetSpeedPanelBackground(key)
-    if not BACKGROUND_LOOKUP[key] then
-        return
-    end
-    if not addon.db then
-        return
-    end
-    addon.db.speedPanelBackgroundKey = key
-    addon:ApplySpeedPanelAppearance()
-end
-
-function addon:SetSpeedPanelBorder(key)
-    if not BORDER_LOOKUP[key] then
-        return
-    end
-    if not addon.db then
-        return
-    end
-    addon.db.speedPanelBorderKey = key
-    addon:ApplySpeedPanelAppearance()
-end
-
-for _, option in ipairs(SPEED_PANEL_BACKGROUND_OPTIONS) do
-    BACKGROUND_LOOKUP[option.key] = option
-end
-
-for _, option in ipairs(SPEED_PANEL_BORDER_OPTIONS) do
-    BORDER_LOOKUP[option.key] = option
-end
-
-local function updateFallbackTracker(speedTracker, x, y, z, instanceID, now)
-    speedTracker.lastX = x
-    speedTracker.lastY = y
-    speedTracker.lastZ = z
-    speedTracker.instance = instanceID
-    speedTracker.lastTime = now
-end
-
-local function computeFallbackSpeed(active)
-    if not UnitPosition or not GetTime then
-        return nil
-    end
-
+-- Speed from how far you've moved since the last sample, for when GetUnitSpeed reports
+-- nothing (some flying and vehicle cases). Nil inside instances, where positions are hidden.
+local function GetSampledSpeed()
     local x, y, z, instanceID = UnitPosition("player")
     local now = GetTime()
-
-    if not x or not y or not now then
+    if not x or not y then
         return nil
     end
 
-    addon.speedTracker = addon.speedTracker or {}
-    local tracker = addon.speedTracker
-    local hasPrevious = tracker.lastX and tracker.lastY and tracker.lastTime and tracker.lastTime < now
-    local shouldCompute = active and hasPrevious and (not tracker.lastCompute or (now - tracker.lastCompute) >= FALLBACK_SAMPLE_INTERVAL)
-
-    if tracker.instance and tracker.instance ~= instanceID then
-        tracker.lastSpeed = nil
-        tracker.lastCompute = nil
-        updateFallbackTracker(tracker, x, y, z, instanceID, now)
+    if sample.instance and sample.instance ~= instanceID then
+        sample = { x = x, y = y, z = z, instance = instanceID, time = now }
         return nil
     end
 
-    local speed
-    if shouldCompute then
-        local deltaX = x - tracker.lastX
-        local deltaY = y - tracker.lastY
-        local deltaZ = 0
-        if z and tracker.lastZ then
-            deltaZ = z - tracker.lastZ
-        end
-        local distance = math.sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ)
-        local elapsed = now - tracker.lastTime
-        if elapsed > 0 then
-            speed = distance / elapsed
-        end
+    local due = sample.time and sample.time < now and (not sample.computedAt or now - sample.computedAt >= SAMPLE_INTERVAL)
+    if due then
+        local dx, dy, dz = x - sample.x, y - sample.y, (z and sample.z) and (z - sample.z) or 0
+        sample.speed = math.sqrt(dx * dx + dy * dy + dz * dz) / (now - sample.time)
+        sample.computedAt = now
     end
 
-    updateFallbackTracker(tracker, x, y, z, instanceID, now)
-
-    if shouldCompute then
-        tracker.lastSpeed = speed or tracker.lastSpeed
-        tracker.lastCompute = now
-    end
-
-    return tracker.lastSpeed
+    sample.x, sample.y, sample.z, sample.instance, sample.time = x, y, z, instanceID, now
+    return sample.speed
 end
 
--- GetUnitSpeed can return protected/secret numeric values under taint.
--- Use pcall-based coercion so all downstream math uses plain Lua numbers.
-local function coerceSpeedValue(value, fallback)
-    if value == nil then
-        return fallback or 0
+-- GetUnitSpeed can return secret values; anything that isn't a plain number becomes 0
+local function ToNumber(value)
+    local ok, number = pcall(tonumber, value)
+    if ok and type(number) == "number" then
+        return number
     end
-
-    local ok, numeric = pcall(tonumber, value)
-    if ok and type(numeric) == "number" then
-        return numeric
+    ok, number = pcall(function() return value + 0 end)
+    if ok and type(number) == "number" then
+        return number
     end
-
-    ok, numeric = pcall(function()
-        return value + 0
-    end)
-    if ok and type(numeric) == "number" then
-        return numeric
-    end
-
-    return fallback or 0
+    return 0
 end
 
--- Current speed in yards per second (the faster of you and your vehicle).
-local function getPlayerSpeed()
-    if not GetUnitSpeed then
-        return computeFallbackSpeed(true) or 0
-    end
-
-    local ok, current = pcall(function()
-        local localCurrent = coerceSpeedValue(GetUnitSpeed("player"), 0)
-
-        if UnitInVehicle and UnitInVehicle("player") and UnitExists and UnitExists("vehicle") then
-            local vehCurrent = coerceSpeedValue(GetUnitSpeed("vehicle"), 0)
-            if vehCurrent > localCurrent then
-                localCurrent = vehCurrent
-            end
+-- Yards per second: the faster of you and your vehicle
+local function GetPlayerSpeed()
+    local ok, speed = pcall(function()
+        local current = ToNumber(GetUnitSpeed("player"))
+        local inVehicle = UnitInVehicle and UnitInVehicle("player")
+        if inVehicle and UnitExists("vehicle") then
+            current = math.max(current, ToNumber(GetUnitSpeed("vehicle")))
         end
+        current = math.max(current, 0)
 
-        if localCurrent < 0 then
-            localCurrent = 0
+        if current <= 0.1 and ((IsFlying and IsFlying()) or inVehicle) then
+            current = math.max(current, GetSampledSpeed() or 0)
         end
-
-        if (localCurrent <= 0.1) and (
-            (IsFlying and IsFlying()) or
-            (UnitInVehicle and UnitInVehicle("player"))
-        ) then
-            local localFallback = computeFallbackSpeed(true)
-            if localFallback and localFallback > localCurrent then
-                localCurrent = localFallback
-            end
-        end
-
-        return localCurrent
+        return current
     end)
 
     if ok then
-        return current
+        return speed
     end
-
-    return computeFallbackSpeed(true) or 0
+    return GetSampledSpeed() or 0
 end
 
-function addon:ApplySpeedPanelPosition()
-    if not self.speedPanel then
-        return
-    end
+-- ============================================================================
+-- The panel
+-- ============================================================================
 
-    addon:RestoreFramePosition(self.speedPanel, "speedPanelPosition", {"CENTER", UIParent, "CENTER", 0, -200})
-end
-
-local function updateSpeedPanelText(frame, force)
-    if not frame or not frame.text then
-        return
-    end
-
-    local speed = getPlayerSpeed()
-    local percent = (speed / BASE_RUN_SPEED) * 100
-
-    if percent ~= percent then -- NaN guard
+local function UpdateText(force)
+    local speed = GetPlayerSpeed()
+    local percent = speed / BASE_RUN_SPEED * 100
+    if percent ~= percent then -- NaN
         percent = 0
     end
+    percent = math.floor(percent + 0.5)
 
-    local roundedPercent = math.floor(percent + 0.5)
-    local yardsPerSecond = speed
-
-    if not force and frame.lastPercent == roundedPercent and math.abs((frame.lastYards or 0) - yardsPerSecond) < 0.1 then
+    if not force and shownPercent == percent and math.abs((shownYards or 0) - speed) < 0.1 then
         return
     end
-
-    frame.lastPercent = roundedPercent
-    frame.lastYards = yardsPerSecond
-
-    frame.text:SetText(string.format("Speed: %d%% (%.1f yd/s)", roundedPercent, yardsPerSecond))
+    shownPercent, shownYards = percent, speed
+    panel.text:SetFormattedText("Speed: %d%% (%.1f yd/s)", percent, speed)
 end
 
-local function applySpeedPanelAppearance(frame)
-    if not frame or not frame.text then
-        return
-    end
+local function ApplyAppearance()
+    local db = addon.db
 
-    local db = addon.db or {}
     local defaultFont = GameFontHighlightLarge:GetFont()
-    local fontSize = db.speedPanelFontSize or DEFAULT_FONT_SIZE
-    local outline = OUTLINE_LOOKUP[db.speedPanelFontOutline] or OUTLINE_LOOKUP.NONE
-    -- Only an explicit false is a failure; SetFont returns nothing on success here
-    if frame.text:SetFont(db.speedPanelFont or defaultFont, fontSize, outline.flags) == false then
-        frame.text:SetFont(defaultFont, fontSize, outline.flags)
+    local outline = OUTLINES[db.speedPanelFontOutline] or OUTLINES.NONE
+    addon.SetFontOrFallback(panel.text, db.speedPanelFont or defaultFont, db.speedPanelFontSize, outline.flags, defaultFont)
+    local color = db.speedPanelTextColor
+    panel.text:SetTextColor(color.r, color.g, color.b, color.a)
+
+    local background = BACKGROUNDS[db.speedPanelBackgroundKey] or BACKGROUNDS.dialog
+    local border = BORDERS[db.speedPanelBorderKey] or BORDERS.tooltip
+    panel:SetBackdrop({ bgFile = background.texture, edgeFile = border.texture, edgeSize = border.edgeSize, insets = border.insets })
+    color = db.speedPanelBackgroundColor
+    panel:SetBackdropColor(color.r, color.g, color.b, color.a)
+
+    -- The chosen border color shows once the panel is locked
+    if db.speedPanelLocked then
+        color = db.speedPanelBorderColor
+        panel:SetBackdropBorderColor(color.r, color.g, color.b, color.a)
+    else
+        panel:SetBackdropBorderColor(unpack(UNLOCKED_BORDER_COLOR))
     end
+    panel:SetMovable(not db.speedPanelLocked)
 
-    local textColor = db.speedPanelTextColor or { r = 1, g = 1, b = 1, a = 1 }
-    frame.text:SetTextColor(textColor.r, textColor.g, textColor.b, textColor.a)
-
-    local backgroundOption = getBackgroundOption(db.speedPanelBackgroundKey)
-    local borderOption = getBorderOption(db.speedPanelBorderKey)
-
-    frame:SetBackdrop({
-        bgFile = backgroundOption.texture,
-        edgeFile = borderOption.texture,
-        edgeSize = borderOption.edgeSize or 12,
-        insets = borderOption.insets or { left = 3, right = 3, top = 3, bottom = 3 },
-    })
-
-    local bgColor = db.speedPanelBackgroundColor or { r = 0, g = 0, b = 0, a = 0.55 }
-    frame:SetBackdropColor(bgColor.r, bgColor.g, bgColor.b, bgColor.a)
-
-    sizeSpeedPanelFrame(frame)
-    addon:RefreshSpeedPanelLock()
+    -- Sized for the widest text it can show
+    local text = panel.text:GetText()
+    panel.text:SetText(WIDEST_TEXT)
+    panel:SetSize(math.max(160, panel.text:GetStringWidth() + 24), math.max(36, panel.text:GetStringHeight() + 16))
+    panel.text:SetText(text)
 end
 
-function addon:ApplySpeedPanelAppearance()
-    if not self.speedPanel then
-        return
-    end
-    applySpeedPanelAppearance(self.speedPanel)
-    updateSpeedPanelText(self.speedPanel, true)
-end
+local function CreatePanel()
+    panel = CreateFrame("Frame", "GarageUITweaksSpeedPanel", UIParent, "BackdropTemplate")
+    panel:SetClampedToScreen(true)
+    panel:EnableMouse(true)
+    panel:RegisterForDrag("LeftButton")
+    panel:Hide()
 
-local function speedPanelOnUpdate(self, elapsed)
-    if not self:IsShown() then
-        return
-    end
+    panel.text = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+    panel.text:SetPoint("CENTER")
 
-    self.elapsed = (self.elapsed or 0) + elapsed
-    if self.elapsed < SPEED_UPDATE_INTERVAL then
-        return
-    end
-
-    self.elapsed = 0
-    updateSpeedPanelText(self)
-end
-
-local function ensureSpeedPanel()
-    if addon.speedPanel then
-        return addon.speedPanel
-    end
-
-    local frame = CreateFrame("Frame", "GarageUITweaksSpeedPanel", UIParent, "BackdropTemplate")
-    frame:SetSize(160, 36)
-    frame:SetMovable(true)
-    frame:SetClampedToScreen(true)
-    frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", function(self)
-        if addon.db and addon.db.speedPanelLocked then
-            return
+    panel:SetScript("OnDragStart", function(self)
+        if not addon.db.speedPanelLocked then
+            self:StartMoving()
         end
-        self:StartMoving()
     end)
-    frame:SetScript("OnDragStop", function(self)
+    panel:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
+        addon:AnchorToScreenCenter(self)
         addon:SaveFramePosition(self, "speedPanelPosition")
     end)
 
-    local text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
-    text:SetPoint("CENTER")
-    text:SetText("Speed: 0% (0.0 yd/s)")
-    frame.text = text
-
-    frame.elapsed = 0
-
-    frame:SetScript("OnShow", function(self)
-        updateSpeedPanelText(self, true)
-    end)
-
-    frame:SetScript("OnEnter", function(self)
-        if not GameTooltip then
-            return
-        end
+    panel:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:SetText("Speed Panel")
-        if addon.db and addon.db.speedPanelLocked then
+        if addon.db.speedPanelLocked then
             GameTooltip:AddLine("Unlock the panel in settings to move it.", 1, 1, 1, true)
         else
             GameTooltip:AddLine("Drag with Left Click to reposition.", 1, 1, 1, true)
         end
         GameTooltip:Show()
     end)
-
-    frame:SetScript("OnLeave", function()
-        if GameTooltip then
-            GameTooltip:Hide()
-        end
+    panel:SetScript("OnLeave", function()
+        GameTooltip:Hide()
     end)
 
-    frame:Hide()
-
-    addon.speedPanel = frame
-    addon:ApplySpeedPanelPosition()
-    applySpeedPanelAppearance(frame)
-    updateSpeedPanelText(frame, true)
-    return frame
+    panel:SetScript("OnShow", function()
+        UpdateText(true)
+    end)
+    -- Runs only while the panel is shown
+    panel:SetScript("OnUpdate", function(_, elapsed)
+        sinceUpdate = sinceUpdate + elapsed
+        if sinceUpdate >= UPDATE_INTERVAL then
+            sinceUpdate = 0
+            UpdateText()
+        end
+    end)
 end
 
-function addon:SetSpeedPanelEnabled(enabled)
-    if not self.db then
+function addon:UpdateSpeedPanel()
+    if not self.db.speedPanelEnabled then
+        if panel then
+            panel:Hide()
+        end
         return
     end
 
-    if enabled then
-        local frame = ensureSpeedPanel()
-        if not frame then
-            return
-        end
-
-        addon:ApplySpeedPanelPosition()
-        addon:ApplySpeedPanelAppearance()
-        frame.elapsed = 0
-        frame:SetScript("OnUpdate", speedPanelOnUpdate)
-        updateSpeedPanelText(frame, true)
-        frame:Show()
-    else
-        local frame = self.speedPanel
-        if frame then
-            frame:SetScript("OnUpdate", nil)
-            frame:Hide()
-        end
+    if not panel then
+        CreatePanel()
     end
-
-    self:RefreshSpeedPanelLock()
-end
-
-function addon:RefreshSpeedPanelLock()
-    local frame = self.speedPanel
-    if not frame then
-        return
-    end
-
-    local locked = self.db and self.db.speedPanelLocked
-    frame.isLocked = locked and true or false
-
-    if locked then
-        local borderColor = self.db.speedPanelBorderColor or { r = 0.4, g = 0.4, b = 0.4, a = 0.9 }
-        frame:SetBackdropBorderColor(borderColor.r, borderColor.g, borderColor.b, borderColor.a)
-        frame:SetMovable(false)
-    else
-        -- Yellow marks the panel as movable; the chosen border color shows once it is locked
-        frame:SetBackdropBorderColor(0.8, 0.8, 0.2, 0.9)
-        frame:SetMovable(true)
-    end
-end
-
-function addon:ResetSpeedPanelPosition()
-    if not self.db then
-        return
-    end
-
-    self.db.speedPanelPosition = nil
-
-    if self.speedPanel then
-        addon:ApplySpeedPanelPosition()
-        if self.speedPanel:IsShown() then
-            updateSpeedPanelText(self.speedPanel, true)
-        end
-    end
+    ApplyAppearance()
+    self:RestoreFramePosition(panel, "speedPanelPosition", DEFAULT_POSITION)
+    panel:Show()
+    UpdateText(true)
 end

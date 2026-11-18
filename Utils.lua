@@ -1,115 +1,122 @@
 ---@diagnostic disable: undefined-global
--- Garage UI Tweaks - Utilities
+-- Garage UI Tweaks - Shared helpers
 local addonName, addon = ...
 
--- ============================================================================
--- Debugging & Printing
--- ============================================================================
-
-function addon:Print(msg)
-    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[GarageT]|r " .. tostring(msg))
+function addon:Print(...)
+    print("|cff00ff00Garage UI Tweaks:|r", ...)
 end
 
-function addon:Debug(msg)
-    -- We can expand this to a global debug setting later if needed
-    -- For now, individual modules might guard calls to this, or we rely on specific flags
-    if self.db.debug then
-        self:Print("|cffff0000DEBUG:|r " .. tostring(msg))
+-- 12.x hides some values from addons (cooldown times, some names): they can be shown,
+-- but not compared or used in math.
+function addon.IsSecret(value)
+    return issecretvalue ~= nil and issecretvalue(value)
+end
+
+function addon.DeepCopy(value)
+    if type(value) ~= "table" then
+        return value
+    end
+    local copy = {}
+    for key, inner in pairs(value) do
+        copy[key] = addon.DeepCopy(inner)
+    end
+    return copy
+end
+
+-- Puts the listed settings back to their defaults (unset, for those without one)
+function addon:ResetSettings(keys)
+    for _, key in ipairs(keys) do
+        self.db[key] = self.DeepCopy(self.defaults[key])
+    end
+end
+
+function addon:IsEditModeActive()
+    return EditModeManagerFrame ~= nil and EditModeManagerFrame.IsEditModeActive ~= nil
+        and EditModeManagerFrame:IsEditModeActive() or false
+end
+
+-- Returns a function that runs `func` on the next frame, once, however many times it is
+-- called before then. For refreshes that several events or hooks can ask for together.
+function addon.NextFrameOnce(func)
+    local queued = false
+    local function Run()
+        queued = false
+        func()
+    end
+    return function()
+        if not queued then
+            queued = true
+            C_Timer.After(0, Run)
+        end
+    end
+end
+
+-- SetFont, falling back to `fallback` (default: the game's standard font) when the file
+-- won't load. A missing file raises an error on some clients and returns false on others;
+-- SetFont returns nothing on success.
+function addon.SetFontOrFallback(object, path, size, flags, fallback)
+    local ok, result = pcall(object.SetFont, object, path, size, flags)
+    if not ok or result == false then
+        object:SetFont(fallback or STANDARD_TEXT_FONT, size, flags)
     end
 end
 
 -- ============================================================================
--- CVar Management
+-- Saved frame positions
 -- ============================================================================
+-- Positions are measured from the middle of the screen, so a frame keeps its place
+-- relative to the center when the resolution or UI scale changes.
 
--- Sets a CVar only if the value is different, to avoid potential event spam or processing overhead
-function addon:SetCVar(cvar, value)
-    local current = C_CVar.GetCVar(cvar)
-    -- Convert numbers to strings for comparison if needed, though GetCVar usually returns string
-    if tostring(current) ~= tostring(value) then
-        C_CVar.SetCVar(cvar, value)
-        return true -- Value changed
+-- Re-anchors `frame` where it is now, holding its `point` (default "CENTER") at an offset
+-- from the screen's center. False if the frame has no position yet.
+function addon:AnchorToScreenCenter(frame, point)
+    point = point or "CENTER"
+    local left, bottom, width, height = frame:GetRect()
+    if not left then
+        return false
     end
-    return false -- No change needed
-end
 
--- ============================================================================
--- Frame Positioning
--- ============================================================================
+    local x, y = left + width / 2, bottom + height / 2
+    if point:find("LEFT") then
+        x = left
+    elseif point:find("RIGHT") then
+        x = left + width
+    end
+    if point:find("TOP") then
+        y = bottom + height
+    elseif point:find("BOTTOM") then
+        y = bottom
+    end
+
+    -- The screen's center in the frame's own coordinates; its scale may differ from UIParent's
+    local ratio = UIParent:GetEffectiveScale() / frame:GetEffectiveScale()
+    local centerX, centerY = UIParent:GetCenter()
+
+    frame:ClearAllPoints()
+    frame:SetPoint(point, UIParent, "CENTER", x - centerX * ratio, y - centerY * ratio)
+    return true
+end
 
 function addon:SaveFramePosition(frame, dbKey)
-    if not frame or not self.db then return end
-    
-    local point, relativeTo, relativePoint, xOfs, yOfs = frame:GetPoint()
-    if not point then return end
-
-    self.db[dbKey] = {
-        point = point,
-        relativePoint = relativePoint,
-        xOfs = xOfs,
-        yOfs = yOfs,
-        relative = (relativeTo and relativeTo:GetName()) or "UIParent"
-    }
-end
-
-function addon:RestoreFramePosition(frame, dbKey, defaultAnchor)
-    if not frame then return end
-    
-    frame:ClearAllPoints()
-    
-    local pos = self.db and self.db[dbKey]
-    if pos and pos.point then
-        local relative = UIParent
-        if pos.relative and _G[pos.relative] then
-            relative = _G[pos.relative]
-        end
-        -- Fallback to UIParent if named relative frame makes no sense or doesn't exist
-        if not relative then relative = UIParent end
-        
-        frame:SetPoint(pos.point, relative, pos.relativePoint or pos.point, pos.xOfs or pos.x or 0, pos.yOfs or pos.y or 0)
-    else
-        if defaultAnchor then
-            frame:SetPoint(unpack(defaultAnchor))
-        else
-            frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-        end
+    local point, _, relativePoint, x, y = frame:GetPoint()
+    if point then
+        self.db[dbKey] = { point = point, relativePoint = relativePoint, xOfs = x, yOfs = y }
     end
 end
 
--- ============================================================================
--- Texture/Backdrop Helpers
--- ============================================================================
-
--- Helper to ensure a frame has a valid backdrop structure 
--- (mostly for reusing common styles)
-function addon:ApplyBackdrop(frame, style)
-    if not frame.SetBackdrop then
-        Mixin(frame, BackdropTemplateMixin)
-    end
-    
-    if style == "chat" then
-        frame:SetBackdrop({
-            bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-            tile = true, tileSize = 16, edgeSize = 16,
-            insets = { left = 4, right = 4, top = 4, bottom = 4 }
-        })
-        frame:SetBackdropColor(0.1, 0.1, 0.1, 0.4)
-        frame:SetBackdropBorderColor(0.4, 0.4, 0.4, 0.8)
-    elseif style == "dialog" then
-        frame:SetBackdrop({
-            bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-            edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-            tile = true, tileSize = 32, edgeSize = 32,
-            insets = { left = 11, right = 12, top = 12, bottom = 11 }
-        })
-    elseif style == "tooltip" then
-        frame:SetBackdrop({
-            bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-            tile = true, tileSize = 16, edgeSize = 16,
-            insets = { left = 4, right = 4, top = 4, bottom = 4 }
-        })
-        frame:SetBackdropColor(0, 0, 0, 1)
+-- Puts a frame where SaveFramePosition stored it, or at `default` ({ point, x, y } from the
+-- screen's center) when nothing is saved. A position saved by an older version, measured
+-- from a corner of the screen, is converted and saved again.
+function addon:RestoreFramePosition(frame, dbKey, default)
+    local pos = self.db[dbKey]
+    if pos then
+        frame:ClearAllPoints()
+        frame:SetPoint(pos.point, UIParent, pos.relativePoint or pos.point, pos.xOfs or pos.x or 0, pos.yOfs or pos.y or 0)
+        if pos.relativePoint ~= "CENTER" and self:AnchorToScreenCenter(frame, pos.point) then
+            self:SaveFramePosition(frame, dbKey)
+        end
+    elseif default then
+        frame:ClearAllPoints()
+        frame:SetPoint(default[1], UIParent, "CENTER", default[2], default[3])
     end
 end

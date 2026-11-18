@@ -26,6 +26,8 @@ local features = {
     -- The CVars the engine places damage numbers with (see DamageNumbers.lua)
     damageNumberPosition = function() return addon:HasDamageNumberSettings("position") end,
     damageNumberSpread = function() return addon:HasDamageNumberSettings("spread") end,
+    -- Blizzard's scrolling combat text frame (see SelfCombatText.lua)
+    selfCombatText = function() return addon:HasSelfCombatText() end,
 }
 
 -- Checked on first use rather than at load, so Blizzard code that loads after us is counted

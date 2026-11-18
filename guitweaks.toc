@@ -10,12 +10,15 @@ Core.lua
 Compat.lua
 Utils.lua
 ErrorTextBackground.lua
-BattlegroundMap.lua
+FrameTweaks.lua
 SpeedPanel.lua
 CooldownAtMouse.lua
 DamageNumbers.lua
+SelfCombatText.lua
 ChatTweaks.lua
-Tweaks.lua
+Nameplates.lua
+ArmorSetHighlight.lua
+PreyPercent.lua
 RaidPartyFrames.lua
 BackgroundPanel.lua
 SettingsWidgets.lua

@@ -1,442 +1,278 @@
 ---@diagnostic disable: undefined-global
--- Garage UI Tweaks - Raid/Party Frame Centering
+-- Garage UI Tweaks - Raid and Party Frame Centering
+-- Keeps the party and raid frames centered on the area they take up at full size, so they
+-- shrink toward the middle as members leave instead of toward their anchored corner. The
+-- full size is taken from the frames as Edit Mode shows them, or the largest seen.
 local addonName, addon = ...
 
-local centeringEventFrame
-local frameState = {}
-local refreshQueued = false
+local state = {} -- per "party" / "raid": base anchor, full size, offset applied, hooks installed
 local applyingSetPoint = false
 local pendingCombatRefresh = false
-local editModeHooksInstalled = false
+local eventFrame
+local editModeHooked = false
 
 local function DebugPrint(msg)
-    if addon.db and addon.db.centerFramesDebug then
-        addon:Print("CenterFrames: " .. tostring(msg))
+    if addon.db.centerFramesDebug then
+        addon:Print("Center frames: " .. msg)
     end
 end
 
-local function BoolToText(v)
-    return v and "true" or "false"
+local function IsEnabled(key)
+    return (key == "party" and addon.db.centerPartyFramesEnabled) or (key == "raid" and addon.db.centerRaidFramesEnabled)
+end
+
+local function IsAnyEnabled()
+    return addon.db.centerPartyFramesEnabled or addon.db.centerRaidFramesEnabled
+end
+
+local function GetManagedFrames()
+    return {
+        party = CompactPartyFrame or CompactPartyFrameContainer or PartyFrame,
+        raid = CompactRaidFrameContainer,
+    }
+end
+
+local function GetState(key)
+    state[key] = state[key] or {}
+    return state[key]
 end
 
 local function FrameName(frame)
     return (frame and frame.GetName and frame:GetName()) or "<unnamed>"
 end
 
-local function RelativeName(relativeTo)
-    if not relativeTo then
-        return "nil"
-    end
-
-    if relativeTo == UIParent then
-        return "UIParent"
-    end
-
-    if relativeTo.GetName then
-        local name = relativeTo:GetName()
-        if name and name ~= "" then
-            return name
-        end
-    end
-
-    return tostring(relativeTo)
-end
-
-local function IsPartyEnabled()
-    return addon.db and addon.db.centerPartyFramesEnabled
-end
-
-local function IsRaidEnabled()
-    return addon.db and addon.db.centerRaidFramesEnabled
-end
-
-local function IsAnyEnabled()
-    return IsPartyEnabled() or IsRaidEnabled()
-end
-
-local function IsEditModeActive()
-    if EditModeManagerFrame and EditModeManagerFrame.IsEditModeActive then
-        local ok, isActive = pcall(EditModeManagerFrame.IsEditModeActive, EditModeManagerFrame)
-        if ok then
-            return isActive and true or false
-        end
-    end
-
-    return EditModeManagerFrame and EditModeManagerFrame.editModeActive and true or false
-end
-
-local function GetManagedFrames()
-    local frames = {}
-
-    local partyFrame = _G["CompactPartyFrame"]
-        or _G["CompactPartyFrameContainer"]
-        or _G["PartyFrame"]
-    local raidFrame = _G["CompactRaidFrameContainer"]
-
-    if partyFrame then
-        frames.party = partyFrame
-    end
-
-    if raidFrame then
-        frames.raid = raidFrame
-    end
-
-    return frames
-end
-
-local function NormalizeOffsets(point, x, y, offsetX, offsetY, invert)
+-- Moves an anchor offset toward (or, inverted, away from) the frame's middle
+local function ShiftOffsets(point, x, y, shiftX, shiftY, invert)
     local sign = invert and -1 or 1
-    x = x or 0
-    y = y or 0
+    x, y = x or 0, y or 0
 
-    if point and string.find(point, "LEFT", 1, true) then
-        x = x + (sign * offsetX)
-    elseif point and string.find(point, "RIGHT", 1, true) then
-        x = x - (sign * offsetX)
+    if point:find("LEFT") then
+        x = x + sign * shiftX
+    elseif point:find("RIGHT") then
+        x = x - sign * shiftX
     end
-
-    if point and string.find(point, "TOP", 1, true) then
-        y = y - (sign * offsetY)
-    elseif point and string.find(point, "BOTTOM", 1, true) then
-        y = y + (sign * offsetY)
+    if point:find("TOP") then
+        y = y - sign * shiftY
+    elseif point:find("BOTTOM") then
+        y = y + sign * shiftY
     end
-
     return x, y
 end
 
-local function CaptureBaselineSize(key, frame, replace)
-    local state = frameState[key] or {}
-    local width = frame:GetWidth() or 0
-    local height = frame:GetHeight() or 0
-
-    if width > 0 then
-        if replace or not state.baselineWidth then
-            state.baselineWidth = width
-        else
-            state.baselineWidth = math.max(state.baselineWidth, width)
-        end
-    end
-
-    if height > 0 then
-        if replace or not state.baselineHeight then
-            state.baselineHeight = height
-        else
-            state.baselineHeight = math.max(state.baselineHeight, height)
-        end
-    end
-
-    frameState[key] = state
-end
-
-local function RestoreSingleAnchor(key, frame)
-    local state = frameState[key]
-    if not state or not state.basePoint then
-        return
-    end
-
-    local relativeTo = state.baseRelativeTo
-    local relativePoint = state.baseRelativePoint or state.basePoint
-
+local function SetAnchor(frame, point, relativeTo, relativePoint, x, y)
     applyingSetPoint = true
     frame:ClearAllPoints()
-    frame:SetPoint(state.basePoint, relativeTo, relativePoint, state.baseX or 0, state.baseY or 0)
+    frame:SetPoint(point, relativeTo, relativePoint, x, y)
     applyingSetPoint = false
-
-    state.appliedX = 0
-    state.appliedY = 0
 end
 
-local function CenterSingleFrame(key, frame)
-    if not frame or not frame.GetPoint then
+-- Remembers the frame's size as its full size: as it is (replace), or the largest seen
+local function CaptureFullSize(key, frame, replace)
+    local frameState = GetState(key)
+    local width, height = frame:GetWidth() or 0, frame:GetHeight() or 0
+
+    if width > 0 then
+        frameState.fullWidth = (replace or not frameState.fullWidth) and width or math.max(frameState.fullWidth, width)
+    end
+    if height > 0 then
+        frameState.fullHeight = (replace or not frameState.fullHeight) and height or math.max(frameState.fullHeight, height)
+    end
+end
+
+local function RestoreAnchor(key, frame)
+    local frameState = state[key]
+    if not frameState or not frameState.basePoint then
         return
     end
 
+    SetAnchor(frame, frameState.basePoint, frameState.baseRelativeTo, frameState.baseRelativePoint or frameState.basePoint,
+        frameState.baseX or 0, frameState.baseY or 0)
+    frameState.appliedX, frameState.appliedY = 0, 0
+end
+
+local function CenterFrame(key, frame)
     local point, relativeTo, relativePoint, x, y = frame:GetPoint(1)
     if not point then
         return
     end
 
-    local state = frameState[key] or {}
+    local frameState = GetState(key)
 
-    -- Recover the unadjusted base anchor before calculating a new centering offset.
-    local previousAppliedX = state.appliedX or 0
-    local previousAppliedY = state.appliedY or 0
-    if previousAppliedX ~= 0 or previousAppliedY ~= 0 then
-        x, y = NormalizeOffsets(point, x, y, previousAppliedX, previousAppliedY, true)
+    -- Take back the offset applied last time to recover Blizzard's anchor
+    local appliedX, appliedY = frameState.appliedX or 0, frameState.appliedY or 0
+    if appliedX ~= 0 or appliedY ~= 0 then
+        x, y = ShiftOffsets(point, x, y, appliedX, appliedY, true)
     end
 
-    state.basePoint = point
-    state.baseRelativeTo = relativeTo
-    state.baseRelativePoint = relativePoint
-    state.baseX = x or 0
-    state.baseY = y or 0
+    frameState.basePoint = point
+    frameState.baseRelativeTo = relativeTo
+    frameState.baseRelativePoint = relativePoint
+    frameState.baseX = x or 0
+    frameState.baseY = y or 0
 
-    local width = frame:GetWidth() or 0
-    local height = frame:GetHeight() or 0
+    local width, height = frame:GetWidth() or 0, frame:GetHeight() or 0
     if width <= 0 or height <= 0 then
-        frameState[key] = state
         return
     end
 
-    if not state.baselineWidth then
-        state.baselineWidth = width
-    end
-    if not state.baselineHeight then
-        state.baselineHeight = height
-    end
+    frameState.fullWidth = frameState.fullWidth or width
+    frameState.fullHeight = frameState.fullHeight or height
 
-    local offsetX = 0
-    local offsetY = 0
+    local offsetX = math.max(0, (frameState.fullWidth - width) / 2)
+    local offsetY = math.max(0, (frameState.fullHeight - height) / 2)
+    local centeredX, centeredY = ShiftOffsets(point, frameState.baseX, frameState.baseY, offsetX, offsetY, false)
 
-    if state.baselineWidth and state.baselineWidth > width then
-        offsetX = (state.baselineWidth - width) / 2
-    end
-    if state.baselineHeight and state.baselineHeight > height then
-        offsetY = (state.baselineHeight - height) / 2
-    end
-
-    local centeredX, centeredY = NormalizeOffsets(point, state.baseX, state.baseY, offsetX, offsetY, false)
-
-    applyingSetPoint = true
-    frame:ClearAllPoints()
-    frame:SetPoint(point, relativeTo, relativePoint or point, centeredX, centeredY)
-    applyingSetPoint = false
-
-    state.appliedX = offsetX
-    state.appliedY = offsetY
-    frameState[key] = state
+    SetAnchor(frame, point, relativeTo, relativePoint or point, centeredX, centeredY)
+    frameState.appliedX, frameState.appliedY = offsetX, offsetY
 end
 
-function addon:QueueRaidPartyFrameCentering()
-    if refreshQueued then
-        return
-    end
+local QueueRefresh -- defined below; the hooks call it
 
-    refreshQueued = true
-    C_Timer.After(0, function()
-        refreshQueued = false
-        addon:RefreshRaidPartyFrameCentering()
-    end)
-end
-
-function addon:RestoreRaidPartyFrameAnchors()
-    if InCombatLockdown() then
-        pendingCombatRefresh = true
-        DebugPrint("Restore delayed due to combat lockdown")
-        return
-    end
-
-    local frames = GetManagedFrames()
-    for key, frame in pairs(frames) do
-        if (key == "party" and not IsPartyEnabled()) or (key == "raid" and not IsRaidEnabled()) then
-            RestoreSingleAnchor(key, frame)
-        end
-    end
-end
-
-function addon:RefreshRaidPartyFrameCentering()
-    if not self.db or not IsAnyEnabled() then
-        DebugPrint("Refresh skipped: all center toggles disabled")
-        return
-    end
-
-    if InCombatLockdown() then
-        pendingCombatRefresh = true
-        DebugPrint("Refresh delayed due to combat lockdown")
-        return
-    end
-
-    local inEditMode = IsEditModeActive()
-    local frames = GetManagedFrames()
-
-    if inEditMode then
-        -- In edit mode, treat current dimensions as the reserved layout area.
-        for key, frame in pairs(frames) do
-            if (key == "party" and IsPartyEnabled()) or (key == "raid" and IsRaidEnabled()) then
-                CaptureBaselineSize(key, frame, true)
-                local state = frameState[key]
-                DebugPrint(string.format("Captured %s baseline in Edit Mode from %s (%.1fx%.1f)", key, FrameName(frame), state and state.baselineWidth or 0, state and state.baselineHeight or 0))
-            end
-        end
-        return
-    end
-
-    for key, frame in pairs(frames) do
-        if (key == "party" and IsPartyEnabled()) or (key == "raid" and IsRaidEnabled()) then
-            CaptureBaselineSize(key, frame, false)
-            CenterSingleFrame(key, frame)
-            local state = frameState[key]
-            DebugPrint(string.format("Applied %s centering on %s (offsetX=%.1f, offsetY=%.1f)", key, FrameName(frame), state and state.appliedX or 0, state and state.appliedY or 0))
-        end
-    end
-end
-
-local function EnsureHooksOnFrame(key, frame)
-    local state = frameState[key] or {}
-    if state.hooksInstalled then
-        return
-    end
-
-    frame:HookScript("OnShow", function()
-        addon:QueueRaidPartyFrameCentering()
-    end)
-
-    frame:HookScript("OnSizeChanged", function()
-        addon:QueueRaidPartyFrameCentering()
-    end)
-
-    hooksecurefunc(frame, "SetPoint", function()
-        if applyingSetPoint then
-            return
-        end
-        addon:QueueRaidPartyFrameCentering()
-    end)
-
-    state.hooksInstalled = true
-    frameState[key] = state
-end
-
-function addon:EnsureRaidPartyFrameCentering()
-    if not centeringEventFrame then
-        centeringEventFrame = CreateFrame("Frame")
-        centeringEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-        centeringEventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
-        centeringEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-        centeringEventFrame:RegisterEvent("UI_SCALE_CHANGED")
-        centeringEventFrame:RegisterEvent("DISPLAY_SIZE_CHANGED")
-        centeringEventFrame:RegisterEvent("CVAR_UPDATE")
-        centeringEventFrame:SetScript("OnEvent", function(_, event)
-            if event == "PLAYER_REGEN_ENABLED" and pendingCombatRefresh then
-                pendingCombatRefresh = false
-                addon:QueueRaidPartyFrameCentering()
-                return
-            end
-
-            if addon.db and IsAnyEnabled() then
-                if event == "PLAYER_ENTERING_WORLD" then
-                    -- Delay centering after world load so frames finish positioning first
-                    C_Timer.After(2, function()
-                        if addon.db and IsAnyEnabled() then
-                            addon:EnsureRaidPartyFrameCentering()
-                            addon:QueueRaidPartyFrameCentering()
-                        end
-                    end)
-                else
-                    addon:QueueRaidPartyFrameCentering()
+-- Blizzard moves and resizes these frames as the group changes; re-center afterwards.
+-- Frames such as CompactPartyFrame are created later, so this runs on every refresh.
+local function HookFrames()
+    for key, frame in pairs(GetManagedFrames()) do
+        local frameState = GetState(key)
+        if not frameState.hooked then
+            frame:HookScript("OnShow", QueueRefresh)
+            frame:HookScript("OnSizeChanged", QueueRefresh)
+            hooksecurefunc(frame, "SetPoint", function()
+                if not applyingSetPoint then
+                    QueueRefresh()
                 end
+            end)
+            frameState.hooked = true
+        end
+    end
+end
+
+local function Refresh()
+    if not IsAnyEnabled() then
+        return
+    end
+
+    if InCombatLockdown() then
+        pendingCombatRefresh = true
+        DebugPrint("refresh waits for the end of combat")
+        return
+    end
+
+    HookFrames()
+
+    -- In Edit Mode the frames show at full size: take that as the area to center in
+    local inEditMode = addon:IsEditModeActive()
+    for key, frame in pairs(GetManagedFrames()) do
+        if IsEnabled(key) then
+            CaptureFullSize(key, frame, inEditMode)
+            local frameState = state[key]
+            if inEditMode then
+                DebugPrint(string.format("captured %s full size in Edit Mode from %s (%.1fx%.1f)", key, FrameName(frame),
+                    frameState.fullWidth or 0, frameState.fullHeight or 0))
+            else
+                CenterFrame(key, frame)
+                DebugPrint(string.format("centered %s on %s (offset %.1f, %.1f)", key, FrameName(frame),
+                    frameState.appliedX or 0, frameState.appliedY or 0))
             end
-        end)
-    end
-
-    local frames = GetManagedFrames()
-    for key, frame in pairs(frames) do
-        EnsureHooksOnFrame(key, frame)
-    end
-
-    if not editModeHooksInstalled and EditModeManagerFrame then
-        if EditModeManagerFrame.EnterEditMode then
-            hooksecurefunc(EditModeManagerFrame, "EnterEditMode", function()
-                addon:QueueRaidPartyFrameCentering()
-            end)
         end
-
-        if EditModeManagerFrame.ExitEditMode then
-            hooksecurefunc(EditModeManagerFrame, "ExitEditMode", function()
-                addon:QueueRaidPartyFrameCentering()
-            end)
-        end
-
-        editModeHooksInstalled = true
     end
 end
 
-function addon:SetRaidPartyFrameCenteringEnabled(enabled)
-    self:SetPartyFrameCenteringEnabled(enabled)
-    self:SetRaidFrameCenteringEnabled(enabled)
-end
+QueueRefresh = addon.NextFrameOnce(Refresh)
 
-function addon:SetPartyFrameCenteringEnabled(enabled)
-    if not self.db then
+-- Puts back Blizzard's anchor on any frame whose centering is off
+local function RestoreDisabled()
+    if InCombatLockdown() then
+        pendingCombatRefresh = true
         return
     end
 
-    self.db.centerPartyFramesEnabled = enabled and true or false
-    self:EnsureRaidPartyFrameCentering()
-
-    if self.db.centerPartyFramesEnabled then
-        DebugPrint("Party centering enabled")
-        self:QueueRaidPartyFrameCentering()
-    else
-        DebugPrint("Party centering disabled")
-        self:RestoreRaidPartyFrameAnchors()
+    for key, frame in pairs(GetManagedFrames()) do
+        if not IsEnabled(key) then
+            RestoreAnchor(key, frame)
+        end
     end
 end
 
-function addon:SetRaidFrameCenteringEnabled(enabled)
-    if not self.db then
+local function OnEvent(_, event)
+    if event == "PLAYER_REGEN_ENABLED" then
+        if pendingCombatRefresh then
+            pendingCombatRefresh = false
+            RestoreDisabled()
+            QueueRefresh()
+        end
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        -- Give the frames time to finish positioning after a loading screen
+        C_Timer.After(2, QueueRefresh)
+    else
+        QueueRefresh()
+    end
+end
+
+function addon:UpdateRaidPartyFrameCentering()
+    RestoreDisabled()
+    if not IsAnyEnabled() then
         return
     end
 
-    self.db.centerRaidFramesEnabled = enabled and true or false
-    self:EnsureRaidPartyFrameCentering()
-
-    if self.db.centerRaidFramesEnabled then
-        DebugPrint("Raid centering enabled")
-        self:QueueRaidPartyFrameCentering()
-    else
-        DebugPrint("Raid centering disabled")
-        self:RestoreRaidPartyFrameAnchors()
+    if not eventFrame then
+        eventFrame = CreateFrame("Frame")
+        for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE", "PLAYER_REGEN_ENABLED", "UI_SCALE_CHANGED",
+                                 "DISPLAY_SIZE_CHANGED", "CVAR_UPDATE" }) do
+            eventFrame:RegisterEvent(event)
+        end
+        eventFrame:SetScript("OnEvent", OnEvent)
     end
+
+    -- Entering Edit Mode shows the frames at full size; leaving it shrinks them again
+    if not editModeHooked and EditModeManagerFrame and EditModeManagerFrame.EnterEditMode then
+        hooksecurefunc(EditModeManagerFrame, "EnterEditMode", QueueRefresh)
+        hooksecurefunc(EditModeManagerFrame, "ExitEditMode", QueueRefresh)
+        editModeHooked = true
+    end
+
+    HookFrames()
+    QueueRefresh()
 end
 
+-- /guit debug
 function addon:DumpRaidPartyFrameDebug()
+    local function Bool(value)
+        return value and "true" or "false"
+    end
+    local function RelativeName(relativeTo)
+        if not relativeTo then
+            return "nil"
+        end
+        local name = relativeTo.GetName and relativeTo:GetName()
+        return (name and name ~= "") and name or tostring(relativeTo)
+    end
+
     local frames = GetManagedFrames()
-    self:Print("CenterFrames debug dump start")
-    self:Print(string.format("Toggles: party=%s, raid=%s, any=%s, debug=%s", BoolToText(IsPartyEnabled()), BoolToText(IsRaidEnabled()), BoolToText(IsAnyEnabled()), BoolToText(self.db and self.db.centerFramesDebug)))
-    self:Print(string.format("State: editMode=%s, combat=%s", BoolToText(IsEditModeActive()), BoolToText(InCombatLockdown())))
+    self:Print(string.format("Center frames: party=%s, raid=%s, debug=%s, editMode=%s, combat=%s",
+        Bool(self.db.centerPartyFramesEnabled), Bool(self.db.centerRaidFramesEnabled), Bool(self.db.centerFramesDebug),
+        Bool(self:IsEditModeActive()), Bool(InCombatLockdown())))
 
     if not frames.party then
-        self:Print("Party frame: not found (checked CompactPartyFrame, CompactPartyFrameContainer, PartyFrame)")
+        self:Print("party frame: not found (checked CompactPartyFrame, CompactPartyFrameContainer, PartyFrame)")
     end
     if not frames.raid then
-        self:Print("Raid frame: not found (checked CompactRaidFrameContainer)")
+        self:Print("raid frame: not found (checked CompactRaidFrameContainer)")
     end
 
     for key, frame in pairs(frames) do
         local point, relativeTo, relativePoint, x, y = frame:GetPoint(1)
-        local state = frameState[key]
-        self:Print(string.format(
-            "%s frame=%s shown=%s size=%.1fx%.1f anchor=%s to %s/%s (%.1f, %.1f)",
-            key,
-            FrameName(frame),
-            BoolToText(frame:IsShown()),
-            frame:GetWidth() or 0,
-            frame:GetHeight() or 0,
-            tostring(point),
-            RelativeName(relativeTo),
-            tostring(relativePoint),
-            x or 0,
-            y or 0
-        ))
+        self:Print(string.format("%s: %s shown=%s size=%.1fx%.1f anchor=%s to %s/%s (%.1f, %.1f)",
+            key, FrameName(frame), Bool(frame:IsShown()), frame:GetWidth() or 0, frame:GetHeight() or 0,
+            tostring(point), RelativeName(relativeTo), tostring(relativePoint), x or 0, y or 0))
 
-        if state then
-            self:Print(string.format(
-                "%s state: baseline=%.1fx%.1f appliedOffset=(%.1f, %.1f) baseAnchor=%s to %s/%s (%.1f, %.1f)",
-                key,
-                state.baselineWidth or 0,
-                state.baselineHeight or 0,
-                state.appliedX or 0,
-                state.appliedY or 0,
-                tostring(state.basePoint),
-                RelativeName(state.baseRelativeTo),
-                tostring(state.baseRelativePoint),
-                state.baseX or 0,
-                state.baseY or 0
-            ))
+        local frameState = state[key]
+        if frameState then
+            self:Print(string.format("%s state: full size=%.1fx%.1f offset=(%.1f, %.1f) base anchor=%s to %s/%s (%.1f, %.1f)",
+                key, frameState.fullWidth or 0, frameState.fullHeight or 0, frameState.appliedX or 0, frameState.appliedY or 0,
+                tostring(frameState.basePoint), RelativeName(frameState.baseRelativeTo), tostring(frameState.baseRelativePoint),
+                frameState.baseX or 0, frameState.baseY or 0))
         else
-            self:Print(string.format("%s state: <none>", key))
+            self:Print(key .. " state: none")
         end
     end
-
-    self:Print("CenterFrames debug dump end")
 end

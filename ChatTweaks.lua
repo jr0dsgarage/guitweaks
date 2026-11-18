@@ -1,255 +1,207 @@
 ---@diagnostic disable: undefined-global
 -- Garage UI Tweaks - Chat Tweaks
+-- The chat entry box's position, width and border; hiding the buttons beside the chat
+-- window and moving them to its right side; per-window chat fonts; stretching the main
+-- chat window over the entry box's strip; and hiding the chat tabs.
 local addonName, addon = ...
 
-local hookInstalled = false
+function addon:UpdateChatTweaks()
+    self:UpdateChatEditBox()
+    self:UpdateChatButtons()
+    self:UpdateChatButtonSide()
+    self:UpdateChatFonts()
+    self:UpdateChatPaneExtend()
+    self:UpdateChatTabs()
+end
 
--- Recalculate position to match the desired scaling anchor
-local function EnforceAnchor(editBox, anchor, save)
-    if not anchor then anchor = "CENTER" end
-    
-    local x = editBox:GetLeft()
-    local y = editBox:GetTop()
-    local w = editBox:GetWidth()
-    local h = editBox:GetHeight()
-    
-    if not x or not y then return end -- Frame not visible/set yet
-    
-    editBox:ClearAllPoints()
-    
-    if anchor == "LEFT" then
-        -- Keep Left edge same
-        editBox:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x, y)
-    elseif anchor == "RIGHT" then
-        -- Keep Right edge same
-        editBox:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", x + w, y)
-    else -- CENTER
-        -- Keep Center same
-        editBox:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x + w/2, y - h/2)
+-- ============================================================================
+-- Chat entry box
+-- ============================================================================
+-- Left to Blizzard until it has been unlocked and dragged. From then on every window's box
+-- sits at the saved spot, measured from the screen's center, at the chosen width. The
+-- resize anchor is the part of the box that holds still when the width changes.
+
+local editBoxHooked = false
+local bordersHidden = false
+local draggingBox
+
+local function ForEachEditBox(func)
+    for i = 1, NUM_CHAT_WINDOWS do
+        local editBox = _G["ChatFrame" .. i .. "EditBox"]
+        if editBox then
+            func(editBox)
+        end
     end
-    
-    if save then
+end
+
+local function SetEditBoxBorderShown(editBox, shown)
+    local name = editBox:GetName()
+    for _, part in ipairs({ "Left", "Right", "Mid" }) do
+        local texture = _G[name .. part]
+        if texture then
+            texture:SetShown(shown)
+        end
+    end
+end
+
+local function PlaceEditBox(editBox)
+    local anchor = addon.db.chatEditBoxAnchor
+    editBox:SetMovable(true)
+    editBox:SetClampedToScreen(true)
+    editBox:SetUserPlaced(true) -- discourages Blizzard from moving it back
+
+    addon:RestoreFramePosition(editBox, "chatEditBoxPosition")
+    -- Saved with another resize anchor: measure from the new one, leaving the box where it is
+    if addon.db.chatEditBoxPosition.point ~= anchor and addon:AnchorToScreenCenter(editBox, anchor) then
         addon:SaveFramePosition(editBox, "chatEditBoxPosition")
     end
+    editBox:SetWidth(addon.db.chatEditBoxWidth)
 end
 
-local function UpdateVisuals()
-    -- Loop through all chat frames to ensure consistency across tabs
-    for i = 1, NUM_CHAT_WINDOWS do
-        local editBox = _G["ChatFrame"..i.."EditBox"]
-        if editBox then
-            -- Skip positioning logic if this specific box is currently being dragged by the user
-            if not editBox.isMoving then
-                -- Set user placed immediately to discourage Blizzard interference where possible
-                editBox:SetUserPlaced(true)
+local QueueEditBoxUpdate = addon.NextFrameOnce(function() addon:UpdateChatEditBox() end)
 
-                -- Restore Position first if needed
-                addon:RestoreFramePosition(editBox, "chatEditBoxPosition")
-                
-                -- Apply Border
-                local hide = addon.db.chatEditBoxHideBorder
-                local texLeft = _G[editBox:GetName().."Left"]
-                local texRight = _G[editBox:GetName().."Right"]
-                local texMid = _G[editBox:GetName().."Mid"]
-                
-                if texLeft then texLeft:SetShown(not hide) end
-                if texRight then texRight:SetShown(not hide) end
-                if texMid then texMid:SetShown(not hide) end
-                
-                editBox:SetWidth(addon.db.chatEditBoxWidth or 450)
-                
-                -- When just updating visuals, we might want to ensure the anchor is correct so future width changes scale correctly
-                if addon.db.chatEditBoxAnchor then
-                    EnforceAnchor(editBox, addon.db.chatEditBoxAnchor, false) 
-                end
-            end
-        end
+local function OnEditBoxMouseDown(self, button)
+    if addon.db.chatEditBoxUnlock and IsShiftKeyDown() and button == "LeftButton" then
+        self:SetMovable(true)
+        self:SetClampedToScreen(true)
+        draggingBox = self
+        self:StartMoving()
     end
 end
 
-function addon:InitChatTweaks()
-    if hookInstalled then 
-        UpdateVisuals()
-        addon:UpdateChatButtonBackgrounds()
-        return 
+local function OnEditBoxMouseUp(self)
+    if draggingBox ~= self then
+        return
     end
-    
-    for i = 1, NUM_CHAT_WINDOWS do
-        local editBox = _G["ChatFrame"..i.."EditBox"]
-        if editBox then
-            -- Enable movement capabilities
-            editBox:SetMovable(true)
-            editBox:SetClampedToScreen(true)
-            
-            -- Hook Mouse Events
-            editBox:HookScript("OnMouseDown", function(self, button)
-                if addon.db.chatEditBoxUnlock and IsShiftKeyDown() and button == "LeftButton" then
-                    self:StartMoving()
-                    self.isMoving = true
-                end
-            end)
-            
-            editBox:HookScript("OnMouseUp", function(self, button)
-                if self.isMoving then
-                    self:StopMovingOrSizing()
-                    self.isMoving = false
-                    -- After dragging, the anchor is likely TOPLEFT. Re-enforce our desired scaling anchor
-                    if addon.db.chatEditBoxAnchor then
-                         EnforceAnchor(self, addon.db.chatEditBoxAnchor, true)
-                    else
-                         addon:SaveFramePosition(self, "chatEditBoxPosition")
-                    end
-                    UpdateVisuals()
-                end
-            end)
-            
-            -- Hook OnShow to force alignment when switching tabs
-            editBox:HookScript("OnShow", function(self)
-                -- Defer slightly to override Blizzard's default positioning for the active tab
-                C_Timer.After(0.01, function() 
-                    if not self.isMoving then
-                        -- We specifically target 'self' here to ensure the active one is caught, 
-                        -- but UpdateVisuals handles everything anyway.
-                        UpdateVisuals() 
-                    end
-                end)
-            end)
+    self:StopMovingOrSizing()
+    draggingBox = nil
+    addon:AnchorToScreenCenter(self, addon.db.chatEditBoxAnchor)
+    addon:SaveFramePosition(self, "chatEditBoxPosition")
+    addon:UpdateChatEditBox()
+end
+
+local function HookEditBoxes()
+    if editBoxHooked then
+        return
+    end
+    editBoxHooked = true
+
+    ForEachEditBox(function(editBox)
+        editBox:HookScript("OnMouseDown", OnEditBoxMouseDown)
+        editBox:HookScript("OnMouseUp", OnEditBoxMouseUp)
+        -- Blizzard places the box again as it's shown for each window...
+        editBox:HookScript("OnShow", QueueEditBoxUpdate)
+    end)
+    -- ...and when the chat type changes
+    if ChatEdit_UpdateHeader then
+        hooksecurefunc("ChatEdit_UpdateHeader", QueueEditBoxUpdate)
+    end
+end
+
+function addon:UpdateChatEditBox()
+    HookEditBoxes()
+
+    local hideBorder = self.db.chatEditBoxHideBorder
+    local placed = self.db.chatEditBoxPosition ~= nil
+    ForEachEditBox(function(editBox)
+        if hideBorder or bordersHidden then
+            SetEditBoxBorderShown(editBox, not hideBorder)
         end
+        if placed and editBox ~= draggingBox then
+            PlaceEditBox(editBox)
+        end
+    end)
+    bordersHidden = hideBorder
+end
+
+-- ============================================================================
+-- Chat frame buttons
+-- ============================================================================
+-- Each option hides its buttons and keeps them hidden. Turning it off shows again only
+-- what was showing when it was hidden, so Blizzard's own hiding (the minimize button of a
+-- docked window, say) is left alone.
+
+-- Parts of each window's button frame ("ChatFrame1ButtonFrame" .. part) the frame option hides
+local BUTTON_FRAME_PARTS = {
+    "Background", "MinimizeButton",
+    "Top", "Bottom", "Left", "Right", "Middle", "TopLeft", "TopRight", "BottomLeft", "BottomRight",
+    "TopTexture", "BottomTexture", "LeftTexture", "RightTexture", "MiddleTexture",
+    "TopLeftTexture", "TopRightTexture", "BottomLeftTexture", "BottomRightTexture",
+}
+
+local wasShown = {} -- [region] = whether it was showing when an option hid it
+local backdropColors = {} -- [button frame] = its backdrop colors, while the frame option clears them
+local buttonsHooked = false
+
+local function SetHiddenByOption(region, hide)
+    if not region then
+        return
     end
-    
-    -- Hook OnShow for Chat Buttons to ensure they stay hidden if disabled
-    if ChatFrameMenuButton then
-        ChatFrameMenuButton:HookScript("OnShow", function(self)
-            if addon.db.hideChatFrameMenuButton then
+    if hide then
+        if wasShown[region] == nil then
+            wasShown[region] = region:IsShown()
+        end
+        region:Hide()
+    elseif wasShown[region] ~= nil then
+        region:SetShown(wasShown[region])
+        wasShown[region] = nil
+    end
+end
+
+local function SetBackdropCleared(frame, clear)
+    if not (frame and frame.GetBackdrop and frame:GetBackdrop()) then
+        return
+    end
+    if clear then
+        backdropColors[frame] = backdropColors[frame] or { { frame:GetBackdropColor() }, { frame:GetBackdropBorderColor() } }
+        frame:SetBackdropColor(0, 0, 0, 0)
+        frame:SetBackdropBorderColor(0, 0, 0, 0)
+    elseif backdropColors[frame] then
+        frame:SetBackdropColor(unpack(backdropColors[frame][1]))
+        frame:SetBackdropBorderColor(unpack(backdropColors[frame][2]))
+        backdropColors[frame] = nil
+    end
+end
+
+-- Blizzard shows these buttons again on its own; hide them straight back while the option is on
+local function KeepHidden(button, dbKey)
+    if button then
+        button:HookScript("OnShow", function(self)
+            if addon.db[dbKey] then
+                wasShown[self] = true
                 self:Hide()
             end
         end)
     end
-    
-    if ChatFrameChannelButton then
-        ChatFrameChannelButton:HookScript("OnShow", function(self)
-            if addon.db.hideChatFrameChannelButton then
-                self:Hide()
-            end
-        end)
-    end
-
-    -- Temporary whisper/conversation windows create new tabs on the fly
-    if FCF_OpenTemporaryWindow then
-        hooksecurefunc("FCF_OpenTemporaryWindow", function()
-            addon:UpdateChatTabs()
-        end)
-    end
-
-    hookInstalled = true
-    UpdateVisuals()
-    addon:UpdateChatButtonBackgrounds()
 end
 
-function addon:UpdateChatButtonBackgrounds()
+function addon:UpdateChatButtons()
+    if not buttonsHooked then
+        KeepHidden(ChatFrameMenuButton, "hideChatFrameMenuButton")
+        KeepHidden(ChatFrameChannelButton, "hideChatFrameChannelButton")
+        KeepHidden(QuickJoinToastButton, "hideQuickJoinToastButton")
+        buttonsHooked = true
+    end
+
+    local hideFrame = self.db.hideChatButtonFrameBackground
     for i = 1, NUM_CHAT_WINDOWS do
-        -- Hide the background texture
-        local background = _G["ChatFrame" .. i .. "ButtonFrameBackground"]
-        if background then
-            if addon.db.hideChatButtonFrameBackground then
-                background:Hide()
-            else
-                background:Show()
-            end
+        local prefix = "ChatFrame" .. i .. "ButtonFrame"
+        for _, part in ipairs(BUTTON_FRAME_PARTS) do
+            SetHiddenByOption(_G[prefix .. part], hideFrame)
         end
-        
-        -- Hide the border textures (Top, Bottom, Left, Right, Middle if exists)
-        -- Assuming standard naming convention for some frames or backdrop
-        local btnFrame = _G["ChatFrame" .. i .. "ButtonFrame"]
-        if btnFrame then
-            local textures = {
-                _G[btnFrame:GetName() .. "Top"],
-                _G[btnFrame:GetName() .. "Bottom"],
-                _G[btnFrame:GetName() .. "Left"],
-                _G[btnFrame:GetName() .. "Right"],
-                _G[btnFrame:GetName() .. "Middle"], 
-                _G[btnFrame:GetName() .. "TopLeft"],
-                _G[btnFrame:GetName() .. "TopRight"],
-                _G[btnFrame:GetName() .. "BottomLeft"],
-                _G[btnFrame:GetName() .. "BottomRight"],
-                _G[btnFrame:GetName() .. "TopTexture"],
-                _G[btnFrame:GetName() .. "BottomTexture"],
-                _G[btnFrame:GetName() .. "LeftTexture"],
-                _G[btnFrame:GetName() .. "RightTexture"],
-                _G[btnFrame:GetName() .. "MiddleTexture"], 
-                _G[btnFrame:GetName() .. "TopLeftTexture"],
-                _G[btnFrame:GetName() .. "TopRightTexture"],
-                _G[btnFrame:GetName() .. "BottomLeftTexture"],
-                _G[btnFrame:GetName() .. "BottomRightTexture"],
-            }
-            
-            for _, tex in pairs(textures) do
-                if addon.db.hideChatButtonFrameBackground then
-                    tex:Hide()
-                else
-                    tex:Show()
-                end
-            end
-            
-            -- If it uses Backdrops
-            if btnFrame.GetBackdrop and btnFrame:GetBackdrop() then
-                 if addon.db.hideChatButtonFrameBackground then
-                     btnFrame:SetBackdropBorderColor(0,0,0,0)
-                     btnFrame:SetBackdropColor(0,0,0,0)
-                 else
-                     -- Can't easily restore original without storing it, but usually standard
-                     btnFrame:SetBackdropBorderColor(1,1,1,1)
-                     btnFrame:SetBackdropColor(0,0,0,0.5) 
-                 end
-            end
-        end
-
-        -- Hide the minimize button
-        local minimize = _G["ChatFrame" .. i .. "ButtonFrameMinimizeButton"]
-        if minimize then
-            if addon.db.hideChatButtonFrameBackground then
-                minimize:Hide()
-            else
-                minimize:Show()
-            end
-        end
-    end
-    
-    -- Main Chat Frame Buttons
-    if ChatFrameMenuButton then
-        if addon.db.hideChatFrameMenuButton then
-            ChatFrameMenuButton:Hide()
-        else
-            ChatFrameMenuButton:Show()
-        end
-    end
-    
-    if ChatFrameChannelButton then
-        if addon.db.hideChatFrameChannelButton then
-            ChatFrameChannelButton:Hide()
-        else
-            ChatFrameChannelButton:Show()
-        end
+        SetBackdropCleared(_G[prefix], hideFrame)
     end
 
-    -- Quick Join / Social Toast Button (The "Social" button often found near chat)
-    if QuickJoinToastButton then
-        if addon.db.hideQuickJoinToastButton then
-            QuickJoinToastButton:Hide()
-        else
-            QuickJoinToastButton:Show()
-        end
-    end
-
-    addon:UpdateChatButtonSide()
-    addon:UpdateChatFonts()
-    addon:UpdateChatPaneExtend()
-    addon:UpdateChatTabs()
+    SetHiddenByOption(ChatFrameMenuButton, self.db.hideChatFrameMenuButton)
+    SetHiddenByOption(ChatFrameChannelButton, self.db.hideChatFrameChannelButton)
+    SetHiddenByOption(QuickJoinToastButton, self.db.hideQuickJoinToastButton)
 end
 
--- Extend Default Chat Pane
--- Blizzard leaves a strip under the main chat frame for the chat entry box. Once the
--- entry box has been moved elsewhere, this stretches the frame down over that strip.
+-- ============================================================================
+-- Extend the main chat window over the entry box's strip
+-- ============================================================================
+-- Blizzard leaves a strip under the main chat frame for the chat entry box. Once the entry
+-- box has been moved elsewhere, this stretches the frame down over that strip.
 --
 -- Edit Mode owns this frame: it re-applies its saved position and its saved height at
 -- different moments, so nudging the frame from wherever it currently is drifts. The
@@ -257,7 +209,6 @@ end
 -- it any number of times give the same result.
 local EXTEND_EDIT_BOX_GAP = 2 -- pixels between the chat frame and its entry box
 local extendHooked = false
-local extendPending = false
 local extendAmount = 0 -- how far the frame is currently stretched; 0 when it isn't
 
 -- Edit Mode keeps the frame clamped a strip's height above the bottom of the screen (the
@@ -296,10 +247,6 @@ local function GetEditModeChatHeight(chatFrame)
     return math.floor(chatFrame:GetSettingValue(hundreds, true) * 100 + chatFrame:GetSettingValue(tensAndOnes, true))
 end
 
-local function IsEditModeActive()
-    return EditModeManagerFrame.IsEditModeActive and EditModeManagerFrame:IsEditModeActive()
-end
-
 local function ApplyChatPaneExtend()
     local chatFrame = ChatFrame1
     local anchor = chatFrame and chatFrame.systemInfo and chatFrame.systemInfo.anchorInfo
@@ -314,7 +261,7 @@ local function ApplyChatPaneExtend()
 
     -- Not while Edit Mode is open: it saves whatever size the frame has when you edit it
     local amount = 0
-    if addon.db.extendDefaultChatPane and not IsEditModeActive() then
+    if addon.db.extendDefaultChatPane and not addon:IsEditModeActive() then
         amount = GetEditBoxStripHeight(chatFrame)
     end
     if amount == 0 and extendAmount == 0 then
@@ -338,22 +285,12 @@ local function ApplyChatPaneExtend()
 end
 
 -- Edit Mode applies position and size in separate steps; run once they have all finished
-local function QueueChatPaneExtend()
-    if extendPending then
-        return
-    end
-    extendPending = true
-    C_Timer.After(0, function()
-        extendPending = false
-        ApplyChatPaneExtend()
-    end)
-end
+local QueueChatPaneExtend = addon.NextFrameOnce(ApplyChatPaneExtend)
 
 function addon:UpdateChatPaneExtend()
     if not self:IsFeatureSupported("chatPaneExtend") then
         return
     end
-    self.db.chatPaneExtend = nil -- bookkeeping from the first version of this option
 
     if not extendHooked then
         extendHooked = true
@@ -383,9 +320,11 @@ function addon:UpdateChatPaneExtend()
     ApplyChatPaneExtend()
 end
 
--- Chat Button Side
--- Blizzard picks the side from the chat frame's screen position and anchors the
--- menu, channel and social buttons to that button frame, so forcing its side moves them all.
+-- ============================================================================
+-- Chat buttons on the right
+-- ============================================================================
+-- Blizzard picks the side from the chat frame's screen position and anchors the menu,
+-- channel and social buttons to that button frame, so forcing its side moves them all.
 local buttonSideHooked = false
 local buttonSideForced = false
 
@@ -404,7 +343,7 @@ function addon:UpdateChatButtonSide()
         end)
     end
 
-    if addon.db.chatButtonsOnRight then
+    if self.db.chatButtonsOnRight then
         buttonSideForced = true
         for _, frameName in ipairs(CHAT_FRAMES or {}) do
             local chatFrame = _G[frameName]
@@ -423,7 +362,9 @@ function addon:UpdateChatButtonSide()
     end
 end
 
--- Chat Text Font
+-- ============================================================================
+-- Chat text font
+-- ============================================================================
 -- Per-window typeface and size overrides, stored in db.chatFonts[windowID] = { font, size }.
 local chatFontHooked = false
 local chatFontOriginals = {} -- [windowID] = font file the window had before we touched it
@@ -438,13 +379,8 @@ local function ApplyChatFont(id)
     chatFontOriginals[id] = chatFontOriginals[id] or file
 
     local override = addon.db.chatFonts[id]
-    if not override then
-        return
-    end
-
-    -- Only an explicit false is a failure; SetFont returns nothing on success here
-    if chatFrame:SetFont(override.font or file, override.size or size, flags) == false then
-        chatFrame:SetFont(chatFontOriginals[id], override.size or size, flags)
+    if override then
+        addon.SetFontOrFallback(chatFrame, override.font or file, override.size or size, flags, chatFontOriginals[id])
     end
 end
 
@@ -491,8 +427,7 @@ function addon:GetChatFontOverride(id)
 end
 
 function addon:GetChatFontSize(id)
-    local chatFrame = _G["ChatFrame" .. id]
-    local _, size = chatFrame:GetFont()
+    local _, size = _G["ChatFrame" .. id]:GetFont()
     return math.floor((size or 14) + 0.5)
 end
 
@@ -515,8 +450,12 @@ function addon:ResetChatFont(id)
     chatFrame:SetFont(chatFontOriginals[id] or file, blizzardSize, flags)
 end
 
--- Chat Tabs
+-- ============================================================================
+-- Chat tabs
+-- ============================================================================
 local hookedTabs = {}
+local tabsHooked = false
+local tabsHidden = false -- true while we're keeping the tabs hidden
 local tabsRevealed = false -- true while hover temporarily shows hidden tabs
 local TAB_STRIP_HEIGHT = 30 -- how far above a chat frame counts as the tab area
 local HOVER_POLL_INTERVAL = 0.1
@@ -577,13 +516,26 @@ hoverWatcher:SetScript("OnUpdate", function(_, elapsed)
 end)
 
 function addon:UpdateChatTabs()
-    local hoverEnabled = addon.db.hideChatTabs and addon.db.showChatTabsOnHover
+    -- Temporary whisper/conversation windows create new tabs on the fly
+    if not tabsHooked and FCF_OpenTemporaryWindow then
+        hooksecurefunc("FCF_OpenTemporaryWindow", function()
+            addon:UpdateChatTabs()
+        end)
+        tabsHooked = true
+    end
+
+    local hoverEnabled = self.db.hideChatTabs and self.db.showChatTabsOnHover
     hoverWatcher:SetShown(hoverEnabled)
     if not hoverEnabled then
         tabsRevealed = false
     end
 
     local hide = TabsShouldHide()
+    if not hide and not tabsHidden then
+        return -- not hidden, or already shown again: leave Blizzard's tabs alone
+    end
+    tabsHidden = hide
+
     for _, frameName in ipairs(CHAT_FRAMES or {}) do
         local tab = _G[frameName .. "Tab"]
         local chatFrame = _G[frameName]
@@ -612,22 +564,4 @@ function addon:UpdateChatTabs()
     elseif not hide and FCF_DockUpdate then
         FCF_DockUpdate()
     end
-end
-
--- Listener for UI updates that might reset the anchor
-hooksecurefunc("ChatEdit_UpdateHeader", function(editBox)
-    if addon.db.chatEditBoxPosition then
-        -- This blizzard function resets anchors. We need to re-apply ours.
-        -- But we must be careful not to create infinite loops or fight it too hard during transient states.
-        -- Using a ticker or just re-applying simply usually works.
-        C_Timer.After(0.01, function() UpdateVisuals() end)
-    end
-end)
-
-function addon:SetChatEditBoxUnlock(enabled)
-    if enabled then self:InitChatTweaks() end
-end
-
-function addon:UpdateChatEditBox()
-    if not hookInstalled then self:InitChatTweaks() else UpdateVisuals() end
 end

@@ -1,1544 +1,1141 @@
 ---@diagnostic disable: undefined-global
--- Garage UI Tweaks Settings
+-- Garage UI Tweaks - Settings
+-- The settings pages, built from the game's own Settings panel controls (SettingsWidgets.lua).
+-- Every control stores its value in addon.db and then calls the tweak's addon:Update...().
 local addonName, addon = ...
 local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 local W = addon.SettingsWidgets
 
--- Slider with the Settings panel's stepper arrows and a typeable value (see SettingsWidgets.lua).
--- Stores into addon.db[dbKey] and then runs apply(value), if given.
-local function CreateDBSlider(parent, label, dbKey, default, minVal, maxVal, step, width, decimals, scale, apply)
-    return W.CreateSlider(parent, {
-        label = label, min = minVal, max = maxVal, step = step, width = width,
-        decimals = decimals, scale = scale,
-        value = addon.db[dbKey] or default,
-        onChange = function(value)
-            addon.db[dbKey] = value
-            if apply then apply(value) end
-        end,
-    })
+local PANEL_NAME = "Garage UI Tweaks"
+
+-- ============================================================================
+-- Controls bound to a setting
+-- ============================================================================
+
+-- Checkbox for the true/false setting addon.db[dbKey]. `hover` is the tooltip text, or
+-- W.AttachHover's options, or false to attach the hover separately.
+local function CreateDBCheckbox(parent, label, dbKey, hover, apply)
+    local checkbox = W.CreateCheckbox(parent)
+    checkbox.Text:SetText(label)
+    checkbox:SetChecked(addon.db[dbKey])
+    checkbox:SetScript("OnClick", function(self)
+        addon.db[dbKey] = self:GetChecked()
+        if apply then apply() end
+    end)
+    if hover ~= false then
+        W.AttachHover(checkbox, type(hover) == "table" and hover or { body = hover })
+    end
+    return checkbox
 end
 
--- Dropdown over { text, value } choices, stored in addon.db[dbKey].
-local function CreateDBChoiceDropdown(parent, width, options, dbKey, default, apply)
+-- Slider for the number addon.db[dbKey]. opts as for W.CreateSlider (label, min, max, step,
+-- width, decimals, scale), plus apply(value) to run after storing a new value.
+local function CreateDBSlider(parent, dbKey, opts, hover)
+    local apply = opts.apply
+    opts.value = addon.db[dbKey]
+    opts.onChange = function(value)
+        addon.db[dbKey] = value
+        if apply then apply(value) end
+    end
+    local slider = W.CreateSlider(parent, opts)
+    if hover then
+        W.AttachHover(slider, { body = hover })
+    end
+    return slider
+end
+
+-- Dropdown over { text, value } choices, stored in addon.db[dbKey]
+local function CreateDBChoiceDropdown(parent, width, options, dbKey, apply)
     return W.CreateChoiceDropdown(parent, width, options,
-        function() return addon.db[dbKey] or default end,
+        function() return addon.db[dbKey] end,
         function(value)
             addon.db[dbKey] = value
             if apply then apply(value) end
         end)
 end
 
--- Create the settings panel for Interface Options
-function addon:CreateSettingsPanel()
-    local panel = CreateFrame("Frame", "GarageUITweaksOptionsPanel", UIParent)
-    panel.name = "Garage UI Tweaks"
-    
-    -- Title
-    local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", 16, -16)
-    title:SetText("Garage UI Tweaks")
-    
-    -- Description
-    local desc = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
-    desc:SetText("Configure your UI tweaks below.")
-    
-    -- Enable checkbox (Global)
-    local enabledCheckbox = W.CreateCheckbox(panel)
-    enabledCheckbox:SetPoint("TOPLEFT", desc, "BOTTOMLEFT", 0, -12)
-    W.AttachHover(enabledCheckbox)
-    enabledCheckbox.Text:SetText("Enable Garage UI Tweaks")
-    enabledCheckbox:SetChecked(addon.db.enabled)
-    enabledCheckbox:SetScript("OnClick", function(self)
-        addon.db.enabled = self:GetChecked()
-        print("|cff00ff00Garage UI Tweaks:|r " .. (addon.db.enabled and "Enabled" or "Disabled"))
-    end)
+local function CreateLabel(parent, text, fontObject)
+    local label = parent:CreateFontString(nil, "ARTWORK", fontObject or "GameFontHighlightSmall")
+    label:SetText(text)
+    return label
+end
 
-    local overview = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    overview:SetPoint("TOPLEFT", enabledCheckbox, "BOTTOMLEFT", 4, -12)
-    overview:SetPoint("RIGHT", panel, "RIGHT", -24, 0)
-    overview:SetJustifyH("LEFT")
-    overview:SetText("Expand Garage UI Tweaks in the Settings list to open individual tweak pages.")
+local function CreateButton(parent, text, width, onClick, hover)
+    local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    button:SetSize(width, 22)
+    button:SetText(text)
+    button:SetScript("OnClick", onClick)
+    if hover then
+        W.AttachHover(button, { body = hover })
+    end
+    return button
+end
 
-    local orderedPages = {}
+-- Greys out `controls` (controls or labels) while `checkbox` is unticked. Call it after the
+-- checkbox's OnClick is set, which would otherwise replace this.
+local function DependOn(checkbox, controls)
+    local function Update()
+        local enabled = checkbox:GetChecked()
+        for _, control in ipairs(controls) do
+            if control.SetEnabled then
+                control:SetEnabled(enabled)
+            else
+                W.SetFontStringEnabled(control, enabled)
+            end
+        end
+    end
+    checkbox:HookScript("OnClick", Update)
+    Update()
+end
 
-    local function CreateSettingsPage(id, pageTitle, pageDescription)
-        local frameName = "GarageUITweaksSettingsPage_" .. id
-        local page = CreateFrame("Frame", frameName, UIParent)
-        page.name = pageTitle
-        page.parent = panel.name
+-- Opens the color picker on the color in addon.db[dbKey]. Each change stores a new
+-- { r, g, b, a } and runs onChange; cancelling puts the old color back.
+local function OpenColorPicker(dbKey, onChange)
+    local old = addon.db[dbKey]
+    local function Store(r, g, b, a)
+        addon.db[dbKey] = { r = r, g = g, b = b, a = a }
+        onChange()
+    end
+    local function OnPicked()
+        local r, g, b = ColorPickerFrame:GetColorRGB()
+        Store(r, g, b, ColorPickerFrame:GetColorAlpha())
+    end
 
-        local titleText = page:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-        titleText:SetPoint("TOPLEFT", 16, -16)
-        titleText:SetText(pageTitle)
+    ColorPickerFrame:SetupColorPickerAndShow({
+        r = old.r, g = old.g, b = old.b, opacity = old.a or 1,
+        hasOpacity = true,
+        swatchFunc = OnPicked,
+        opacityFunc = OnPicked,
+        cancelFunc = function() Store(old.r, old.g, old.b, old.a) end,
+    })
+end
 
-        local descText = page:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-        descText:SetPoint("TOPLEFT", titleText, "BOTTOMLEFT", 0, -8)
-        descText:SetPoint("RIGHT", page, "RIGHT", -16, 0)
-        descText:SetJustifyH("LEFT")
-        descText:SetText(pageDescription or "")
+-- A label and a square showing the color in addon.db[dbKey]; clicking the square opens the
+-- color picker, with opacity
+local function CreateColorSwatch(parent, labelText, dbKey, apply)
+    local row = CreateFrame("Frame", nil, parent)
+    local label = CreateLabel(row, labelText)
+    label:SetPoint("LEFT")
 
-        local scrollFrame = W.CreateScrollFrame(page)
-        scrollFrame:SetPoint("TOPLEFT", descText, "BOTTOMLEFT", 0, -12)
-        scrollFrame:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -20, 12)
+    local swatch = CreateFrame("Button", nil, row)
+    swatch:SetSize(20, 20)
+    swatch:SetPoint("LEFT", label, "RIGHT", 10, 0)
+    local border = swatch:CreateTexture(nil, "BACKGROUND")
+    border:SetAllPoints()
+    border:SetColorTexture(1, 1, 1, 1)
+    local fill = swatch:CreateTexture(nil, "ARTWORK")
+    fill:SetPoint("TOPLEFT", 1, -1)
+    fill:SetPoint("BOTTOMRIGHT", -1, 1)
 
-        local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-        scrollChild:SetHeight(1)
-        scrollChild:SetWidth(1)
-        scrollFrame:SetScrollChild(scrollChild)
+    local function ShowColor()
+        local color = addon.db[dbKey]
+        fill:SetColorTexture(color.r, color.g, color.b, 1)
+    end
+    ShowColor()
 
-        scrollFrame:SetScript("OnSizeChanged", function(self)
-            scrollChild:SetWidth(self:GetWidth())
+    swatch:SetScript("OnClick", function()
+        OpenColorPicker(dbKey, function()
+            ShowColor()
+            apply()
         end)
+    end)
 
-        if id == "background" then
-            page:SetScript("OnShow", function()
-                if addon.RefreshSettings then
-                    addon:RefreshSettings("background")
+    row:SetSize(label:GetStringWidth() + 30, 20)
+    return row
+end
+
+-- ============================================================================
+-- Font dropdown
+-- ============================================================================
+
+local FONTMAGIC_GROUPS = {
+    { label = "Popular", folder = "Popular", fonts = {
+        "Pepsi.ttf", "bignoodletitling.ttf", "Expressway.ttf", "Bangers.ttf", "PTSansNarrow-Bold.ttf", "Roboto Condensed Bold.ttf",
+        "NotoSans_Condensed-Bold.ttf", "Roboto-Bold.ttf", "AlteHaasGroteskBold.ttf", "CalibriBold.ttf", "Orbitron.ttf", "Prototype.ttf",
+        "914Solid.ttf", "Halo.ttf", "Proxima Nova Condensed Bold.ttf", "Comfortaa-Bold.ttf", "Andika-Bold.ttf", "lemon-milk.ttf",
+        "Good Brush.ttf", "KG HAPPY.ttf",
+    } },
+    { label = "Clean & Readable", folder = "Easy-to-Read", fonts = {
+        "BauhausRegular.ttf", "Butterpop.ttf", "Diogenes.ttf", "Junegull.ttf", "Pantalone.ttf", "Resoft.ttf",
+        "Retro Amour.ttf", "SF-Pro.ttf", "Solange.ttf", "Takeaway.ttf",
+    } },
+    { label = "Bold & Impact", folder = "BoldImpact", fonts = {
+        "airstrikebold.ttf", "Blazed.ttf", "DieDieDie.ttf", "graff.ttf", "Green Fuz.otf", "Love Craft.ttf",
+        "modernwarfare.ttf", "Showpop.ttf", "Skratchpunk.ttf", "Skullphabet.ttf", "Trashco.ttf", "Whiplash.ttf",
+    } },
+    { label = "Fantasy & RP", folder = "Fun", fonts = {
+        "Acadian.ttf", "akash.ttf", "Caesar.ttf", "ComicRunes.ttf", "crygords.ttf", "Deltarune.ttf",
+        "Elven.ttf", "Gunung.ttf", "Guroes.ttf", "HarryP.ttf", "Hobbit.ttf", "Kting.ttf",
+        "leviathans.ttf", "MystikOrbs.ttf", "Odinson.ttf", "ParryHotter.ttf", "Pau.ttf", "Pokemon.ttf",
+        "Runic.ttf", "Runy.ttf", "Ruritania.ttf", "Spongebob.ttf", "Starborn.ttf", "Starshines.ttf",
+        "The Centurion .ttf", "Vampire Wars.ttf", "VTKS.ttf", "WaltographUI.ttf", "Wasser.ttf", "Wickedmouse.ttf",
+        "WKnight.ttf", "Zombie.ttf",
+    } },
+    { label = "Sci-Fi & Tech", folder = "Future", fonts = {
+        "04b.ttf", "albra.TTF", "Audiowide.ttf", "continuum.ttf", "dalek.ttf", "digital-7.ttf",
+        "Digital.ttf", "Exocet.ttf", "Galaxyone.ttf", "Minecrafter.Reg.ttf", "pf_tempesta_seven.ttf", "Price.ttf",
+        "RaceSpace.ttf", "RushDriver.ttf", "space age.ttf", "Terminator.ttf",
+    } },
+    { label = "Random", folder = "Random", fonts = {
+        "accidentalpres.ttf", "animeace.ttf", "Barriecito.ttf", "baskethammer.ttf", "ChopSic.ttf", "college.ttf",
+        "Disko.ttf", "Dmagic.ttf", "edgyh.ttf", "edkies.ttf", "FastHand.ttf", "figtoen.ttf",
+        "font2.ttf", "Fraks.ttf", "Ginko.ttf", "Homespun.ttf", "IKARRG.TTF", "JJSTS.TTF",
+        "KOMIKAX_.ttf", "Ktingw.ttf", "Melted.ttf", "Midorima.ttf", "Munsteria.ttf", "Rebuffed.TTF",
+        "Shiruken.ttf", "shog.ttf", "Starcine.ttf", "Stentiga.ttf", "tsuchigumo.ttf", "WhoAsksSatan.ttf",
+    } },
+}
+
+-- Every font on offer, by group: the game's own, LibSharedMedia's and FontMagic's.
+-- Returns the groups' fonts ({ name, path } lists, sorted by name) and the groups in order.
+local function BuildFontList()
+    local fontList = {
+        { name = "Friz Quadrata", path = "Fonts\\FRIZQT__.TTF", group = "Blizzard" },
+        { name = "Arial Narrow", path = "Fonts\\ARIALN.TTF", group = "Blizzard" },
+        { name = "Morpheus", path = "Fonts\\MORPHEUS.TTF", group = "Blizzard" },
+        { name = "Skurri", path = "Fonts\\SKURRI.TTF", group = "Blizzard" },
+    }
+    local seenByPath = {}
+    for _, item in ipairs(fontList) do
+        seenByPath[item.path] = true
+    end
+
+    local function AddFont(name, path, group)
+        if not path or path == "" or seenByPath[path] then
+            return
+        end
+        seenByPath[path] = true
+        table.insert(fontList, { name = name, path = path, group = group })
+    end
+
+    if LSM then
+        local fonts = LSM:HashTable("font")
+        local keys = {}
+        for key in pairs(fonts) do
+            table.insert(keys, key)
+        end
+        table.sort(keys)
+        for _, key in ipairs(keys) do
+            AddFont(key, fonts[key], "LibSharedMedia")
+        end
+    end
+
+    if C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("FontMagic") then
+        local function AddFontMagicFont(groupLabel, basePath, fileName)
+            local label = fileName:gsub("%.[Tt][Tt][Ff]$", ""):gsub("%.[Oo][Tt][Ff]$", "")
+            AddFont(label, basePath .. fileName, "FontMagic: " .. groupLabel)
+        end
+
+        for _, group in ipairs(FONTMAGIC_GROUPS) do
+            local basePath = "Interface\\AddOns\\FontMagic\\" .. group.folder .. "\\"
+            for _, fileName in ipairs(group.fonts) do
+                AddFontMagicFont(group.label, basePath, fileName)
+            end
+        end
+
+        local customPath = "Interface\\AddOns\\FontMagicCustomFonts\\Custom\\"
+        if type(FontMagicCustomFonts) == "table" and type(FontMagicCustomFonts.PATH) == "string" and FontMagicCustomFonts.PATH ~= "" then
+            customPath = FontMagicCustomFonts.PATH
+        end
+        for i = 1, 20 do
+            AddFontMagicFont("Custom", customPath, i .. ".ttf")
+        end
+    end
+
+    local grouped = {}
+    local groupOrder = { "Blizzard", "LibSharedMedia" }
+    local known = { Blizzard = true, LibSharedMedia = true }
+    for _, item in ipairs(fontList) do
+        grouped[item.group] = grouped[item.group] or {}
+        table.insert(grouped[item.group], item)
+        if not known[item.group] then
+            known[item.group] = true
+            table.insert(groupOrder, item.group)
+        end
+    end
+
+    -- FontMagic's groups go last
+    table.sort(groupOrder, function(a, b)
+        local aMagic, bMagic = a:find("^FontMagic:") ~= nil, b:find("^FontMagic:") ~= nil
+        if aMagic ~= bMagic then
+            return bMagic
+        end
+        return a < b
+    end)
+    for _, fonts in pairs(grouped) do
+        table.sort(fonts, function(a, b) return a.name:lower() < b.name:lower() end)
+    end
+
+    return grouped, groupOrder
+end
+
+-- A font object per font file, to draw each menu entry in its own font. False for a file
+-- that won't load (the FontMagic lists name files that may not be installed).
+local previewFonts = {}
+local previewFontCount = 0
+
+local function GetPreviewFont(path)
+    local font = previewFonts[path]
+    if font == nil then
+        previewFontCount = previewFontCount + 1
+        font = CreateFont("GUIT_FontPreview" .. previewFontCount)
+        -- A missing font file raises an error on some clients and returns false on
+        -- others; SetFont returns nothing on success here
+        local ok, result = pcall(font.SetFont, font, path, 14, "")
+        if not ok or result == false then
+            font = false
+        end
+        previewFonts[path] = font
+    end
+    return font or nil
+end
+
+-- Typeface dropdown whose entries are each drawn in their own font, one submenu per
+-- source. getPath returns the chosen font file (nil, or one not listed, shows "Default");
+-- setPath stores a new one. The stepper buttons walk every group in turn.
+local function CreateFontDropdown(parent, getPath, setPath)
+    local function IsSelected(path) return getPath() == path end
+    local function SetSelected(path) setPath(path) end
+
+    local dropdown = W.CreateDropdown(parent, 210, function(_, rootDescription)
+        local grouped, groupOrder = BuildFontList()
+        for _, group in ipairs(groupOrder) do
+            local loadable = {}
+            for _, item in ipairs(grouped[group] or {}) do
+                if GetPreviewFont(item.path) then
+                    table.insert(loadable, item)
                 end
-            end)
+            end
+            if #loadable > 0 then
+                local groupDescription = rootDescription:CreateButton(group)
+                for _, item in ipairs(loadable) do
+                    W.CreateFontRadio(groupDescription, item.name, GetPreviewFont(item.path), IsSelected, SetSelected, item.path)
+                end
+                W.LimitMenuHeight(groupDescription, #loadable)
+            end
         end
+    end)
+    dropdown.Dropdown:SetDefaultText("Default")
+    return dropdown
+end
 
-        local pageInfo = {
-            id = id,
-            name = pageTitle,
-            frame = page,
-            scrollChild = scrollChild,
-            totalHeight = 0,
-            lastSection = nil,
-            visibleSections = 0,
-        }
+-- Font dropdown for the font file in addon.db[dbKey]
+local function CreateDBFontDropdown(parent, dbKey, apply)
+    return CreateFontDropdown(parent,
+        function() return addon.db[dbKey] end,
+        function(path)
+            addon.db[dbKey] = path
+            apply()
+        end)
+end
 
-        table.insert(orderedPages, pageInfo)
-        return pageInfo
+-- ============================================================================
+-- Pages and sections
+-- ============================================================================
+
+local function CreateSettingsPage(id, title, description)
+    local page = CreateFrame("Frame", "GarageUITweaksSettingsPage_" .. id, UIParent)
+
+    local titleText = page:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    titleText:SetPoint("TOPLEFT", 16, -16)
+    titleText:SetText(title)
+
+    local descText = page:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    descText:SetPoint("TOPLEFT", titleText, "BOTTOMLEFT", 0, -8)
+    descText:SetPoint("RIGHT", page, "RIGHT", -16, 0)
+    descText:SetJustifyH("LEFT")
+    descText:SetText(description)
+
+    local scrollFrame = W.CreateScrollFrame(page)
+    scrollFrame:SetPoint("TOPLEFT", descText, "BOTTOMLEFT", 0, -12)
+    scrollFrame:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -20, 12)
+
+    local scrollChild = CreateFrame("Frame", nil, scrollFrame)
+    scrollChild:SetSize(1, 1)
+    scrollFrame:SetScrollChild(scrollChild)
+    scrollFrame:SetScript("OnSizeChanged", function(self)
+        scrollChild:SetWidth(self:GetWidth())
+    end)
+
+    return {
+        id = id,
+        name = title,
+        frame = page,
+        scrollChild = scrollChild,
+        totalHeight = 0,
+        lastSection = nil,
+        visibleSections = 0,
+    }
+end
+
+-- Adds a boxed section to a page. featureID (optional) names a Compat.lua feature; when this
+-- client can't support it the section is still built, so the code filling it runs, but it
+-- is left out of the layout.
+local function CreateSection(page, titleText, descriptionText, height, featureID)
+    local parent = page.scrollChild
+    local section = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    section:SetBackdrop({
+        bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 16,
+        insets = { left = 4, right = 4, top = 4, bottom = 4 },
+    })
+    section:SetBackdropColor(0.1, 0.1, 0.1, 0.4)
+    section:SetBackdropBorderColor(0.4, 0.4, 0.4, 0.8)
+    section:SetHeight(height)
+
+    local supported = not featureID or addon:IsFeatureSupported(featureID)
+    if not supported then
+        section:Hide()
+    elseif page.lastSection then
+        section:SetPoint("TOPLEFT", page.lastSection, "BOTTOMLEFT", 0, -16)
+        section:SetPoint("RIGHT", parent, "RIGHT", -4, 0)
+        page.totalHeight = page.totalHeight + 16
+    else
+        section:SetPoint("TOPLEFT", parent, "TOPLEFT", 4, -4)
+        section:SetPoint("RIGHT", parent, "RIGHT", -4, 0)
+        page.totalHeight = page.totalHeight + 4
     end
 
-    -- Page Definitions
-    local tabGeneral = CreateSettingsPage("general", "General Tweaks", "Core quality-of-life improvements and shared behavior.")
-    local tabFrameAdjustments = CreateSettingsPage("frameadjustments", "Frame Tweaks", "Adjust frame strata and status tracking positioning.")
-    local tabChat = CreateSettingsPage("chat", "Chat Tweaks", "Customize chat behavior and chat frame controls.")
-    local tabSpeed = CreateSettingsPage("speed", "Speed Panel Tweaks", "Configure movement speed display options.")
-    local tabCooldowns = CreateSettingsPage("cooldowns", "Cooldown Tweaks", "Configure cooldown display options.")
-    local tabCombatText = CreateSettingsPage("combattext", "Combat Text Tweaks", "Adjust where the damage numbers above enemies appear.")
-    local tabNameplates = CreateSettingsPage("nameplates", "Nameplate Tweaks", "Configure friendly nameplate appearance.")
-    local tabBackground = CreateSettingsPage("background", "Background Panel Tweaks", "Background panel and visual backdrop options.")
+    local title = section:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    title:SetPoint("TOPLEFT", 10, -12)
+    title:SetText(titleText)
 
-    -- Helper to add sections to a tab
-    -- featureID (optional): a Compat.lua feature; when the client can't support it the
-    -- section is still built, so the control code below it runs, but left out of the layout.
-    local function CreateSection(tab, titleText, descriptionText, height, featureID)
-        local parent = tab.scrollChild
-        local section = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-        section:SetBackdrop({
-            bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-            tile = true, tileSize = 16, edgeSize = 16,
-            insets = { left = 4, right = 4, top = 4, bottom = 4 }
-        })
-        section:SetBackdropColor(0.1, 0.1, 0.1, 0.4)
-        section:SetBackdropBorderColor(0.4, 0.4, 0.4, 0.8)
-        section:SetHeight(height)
+    local desc = section:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    desc:SetPoint("TOPLEFT", title, "TOPRIGHT", 12, 0)
+    desc:SetPoint("RIGHT", section, "RIGHT", -12, 0)
+    desc:SetJustifyH("LEFT")
+    desc:SetText(descriptionText)
 
-        local supported = not featureID or addon:IsFeatureSupported(featureID)
-        if not supported then
-            section:Hide()
-        elseif tab.lastSection then
-            section:SetPoint("TOPLEFT", tab.lastSection, "BOTTOMLEFT", 0, -16)
-            section:SetPoint("RIGHT", parent, "RIGHT", -4, 0)
-            tab.totalHeight = tab.totalHeight + 16
-        else
-            section:SetPoint("TOPLEFT", parent, "TOPLEFT", 4, -4)
-            section:SetPoint("RIGHT", parent, "RIGHT", -4, 0)
-            tab.totalHeight = tab.totalHeight + 4
-        end
-
-        local title = section:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-        title:SetPoint("TOPLEFT", 10, -12) -- Adjusted padding to match Knack's padding roughly
-        title:SetText(titleText)
-
-        local desc = section:CreateFontString(nil, "ARTWORK", "GameFontHighlight") -- Changed from Small
-        desc:SetPoint("TOPLEFT", title, "TOPRIGHT", 12, 0)
-        desc:SetPoint("RIGHT", section, "RIGHT", -12, 0)
-        desc:SetJustifyH("LEFT")
-        desc:SetText(descriptionText)
-
-        if supported then
-            tab.lastSection = section
-            tab.visibleSections = tab.visibleSections + 1
-            tab.totalHeight = tab.totalHeight + height
-            parent:SetHeight(math.max(tab.totalHeight, 100))
-        end
-
-        return section, title, desc
+    if supported then
+        page.lastSection = section
+        page.visibleSections = page.visibleSections + 1
+        page.totalHeight = page.totalHeight + height
+        parent:SetHeight(math.max(page.totalHeight, 100))
     end
 
-    -- ====================
-    -- GENERAL TAB CONTENT
-    -- ====================
-    
-    -- Error Text Background
-    local errorBG, errorTitle = CreateSection(tabGeneral, "Error Text Background", "Draws a backdrop behind UI errors briefly to improve visibility.", 174)
-    
-    local errorCheckbox = W.CreateCheckbox(errorBG)
-    errorCheckbox:SetPoint("TOPLEFT", errorTitle, "BOTTOMLEFT", 0, -12)
-    W.AttachHover(errorCheckbox, { body = "Draws a dark backdrop behind the red error messages at the top of the screen, such as \"Not enough rage\", so they're easier to read." })
-    errorCheckbox.Text:SetText("Enable Background")
-    errorCheckbox:SetChecked(addon.db.errorTextBackgroundEnabled)
+    return section, title
+end
 
-    local function ApplyErrorBackground()
-        addon:SetErrorTextBackground(addon.db.errorTextBackgroundEnabled, addon.db.errorTextBackgroundAlpha, addon.db.errorTextBackgroundDuration)
-    end
+-- For a last row this client can't support: hides it, and the section and page get shorter
+local function DropLastRow(page, section, row, height)
+    row:Hide()
+    section:SetHeight(section:GetHeight() - height)
+    page.totalHeight = page.totalHeight - height
+    page.scrollChild:SetHeight(math.max(page.totalHeight, 100))
+end
 
-    local alphaSlider = CreateDBSlider(errorBG, "Opacity (%)", "errorTextBackgroundAlpha", 0.7, 0, 1, 0.05, 220, 0, 100, ApplyErrorBackground)
-    alphaSlider:SetPoint("TOPLEFT", errorCheckbox, "BOTTOMLEFT", 0, -28)
-    W.AttachHover(alphaSlider, { body = "How solid the backdrop behind error messages is." })
+-- ============================================================================
+-- General
+-- ============================================================================
 
-    local durationSlider = CreateDBSlider(errorBG, "Duration (s)", "errorTextBackgroundDuration", 3.0, 1, 5, 0.1, 200, 1, nil, ApplyErrorBackground)
-    durationSlider:SetPoint("TOPLEFT", alphaSlider, "BOTTOMLEFT", 0, -32)
-    W.AttachHover(durationSlider, { body = "How long the backdrop stays after an error message appears, in seconds." })
+local function BuildGeneralPage(page)
+    local section, title
 
-    errorCheckbox:SetScript("OnClick", function(self)
-        addon.db.errorTextBackgroundEnabled = self:GetChecked()
-        ApplyErrorBackground()
-        alphaSlider:SetEnabled(addon.db.errorTextBackgroundEnabled)
-        durationSlider:SetEnabled(addon.db.errorTextBackgroundEnabled)
-    end)
+    -- Error text background
+    section, title = CreateSection(page, "Error Text Background", "Draws a backdrop behind UI errors briefly to improve visibility.", 174)
+    local function ApplyErrorBackground() addon:UpdateErrorTextBackground() end
 
+    local errorEnabled = CreateDBCheckbox(section, "Enable Background", "errorTextBackgroundEnabled",
+        "Draws a dark backdrop behind the red error messages at the top of the screen, such as \"Not enough rage\", so they're easier to read.",
+        ApplyErrorBackground)
+    errorEnabled:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -12)
 
-    -- Override Action Bar
-    local overrideBarGroup, overrideBarTitle = CreateSection(tabGeneral, "Override Action Bar", "Adjust the position of the Vehicle/Override Action Bar.", 100)
+    local errorAlpha = CreateDBSlider(section, "errorTextBackgroundAlpha",
+        { label = "Opacity (%)", min = 0, max = 1, step = 0.05, width = 220, scale = 100, apply = ApplyErrorBackground },
+        "How solid the backdrop behind error messages is.")
+    errorAlpha:SetPoint("TOPLEFT", errorEnabled, "BOTTOMLEFT", 0, -28)
 
-    local overrideYSlider = CreateDBSlider(overrideBarGroup, "Y Offset", "overrideActionBarYOffset", 0, 0, 300, 1, 340, 0, nil,
-        function() addon:UpdateOverrideActionBar() end)
-    overrideYSlider:SetPoint("TOPLEFT", overrideBarTitle, "BOTTOMLEFT", 0, -28)
-    W.AttachHover(overrideYSlider, { body = "Raises the vehicle / override action bar this many pixels above the bottom of the screen." })
+    local errorDuration = CreateDBSlider(section, "errorTextBackgroundDuration",
+        { label = "Duration (s)", min = 1, max = 5, step = 0.1, width = 200, decimals = 1 },
+        "How long the backdrop stays after an error message appears, in seconds.")
+    errorDuration:SetPoint("TOPLEFT", errorAlpha, "BOTTOMLEFT", 0, -32)
 
-    -- Encounter Bar Prey %
-    local encounterBarGroup, encounterBarTitle = CreateSection(tabGeneral, "Encounter Bar", "Show the prey's health percentage on the encounter bar when hunting prey in outdoor zones.", 80, "preyPercent")
+    DependOn(errorEnabled, { errorAlpha, errorDuration })
 
-    local encounterPercentCheck = W.CreateCheckbox(encounterBarGroup)
-    encounterPercentCheck:SetPoint("TOPLEFT", encounterBarTitle, "BOTTOMLEFT", 0, -10)
-    W.AttachHover(encounterPercentCheck, { body = "While hunting prey outdoors, shows the prey's remaining health as a percentage on the encounter bar." })
-    encounterPercentCheck.Text:SetText("Show prey encounter percentage")
-    encounterPercentCheck:SetChecked(addon.db.encounterBarPreyPercentEnabled)
-    encounterPercentCheck:SetScript("OnClick", function(self)
-        addon.db.encounterBarPreyPercentEnabled = self:GetChecked()
-        addon:InitEncounterBarPreyPercent()
-    end)
+    -- Override action bar
+    section, title = CreateSection(page, "Override Action Bar", "Adjust the position of the Vehicle/Override Action Bar.", 100)
+    local overrideOffset = CreateDBSlider(section, "overrideActionBarYOffset",
+        { label = "Y Offset", min = 0, max = 300, step = 1, width = 340, apply = function() addon:UpdateOverrideActionBar() end },
+        "Raises the vehicle / override action bar this many pixels above the bottom of the screen.")
+    overrideOffset:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -28)
 
-    -- Armor Set Action Highlights
-    local armorSetHighlightGroup, armorSetHighlightTitle = CreateSection(tabGeneral, "Armor Set Action Highlights", "Outline action buttons that trigger your currently equipped armor set.", 80, "armorSetHighlight")
+    -- Prey percentage
+    section, title = CreateSection(page, "Encounter Bar", "Show the prey's health percentage on the encounter bar when hunting prey in outdoor zones.", 80, "preyPercent")
+    CreateDBCheckbox(section, "Show prey encounter percentage", "encounterBarPreyPercentEnabled",
+        "While hunting prey outdoors, shows the prey's remaining health as a percentage on the encounter bar.",
+        function() addon:UpdatePreyPercent() end)
+        :SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -10)
 
-    local armorSetHighlightCheck = W.CreateCheckbox(armorSetHighlightGroup)
-    armorSetHighlightCheck:SetPoint("TOPLEFT", armorSetHighlightTitle, "BOTTOMLEFT", 0, -10)
-    W.AttachHover(armorSetHighlightCheck, { body = "Outlines action buttons that trigger your currently equipped armor set, in the same style as the assisted combat highlight." })
-    armorSetHighlightCheck.Text:SetText("Use assisted-combat style outline for equipped set buttons")
-    armorSetHighlightCheck:SetChecked(addon.db.armorSetActionHighlightEnabled)
-    armorSetHighlightCheck:SetScript("OnClick", function(self)
-        addon.db.armorSetActionHighlightEnabled = self:GetChecked()
-        if addon.SetArmorSetActionHighlightEnabled then
-            addon:SetArmorSetActionHighlightEnabled(addon.db.armorSetActionHighlightEnabled)
-        end
-    end)
+    -- Armor set highlights
+    section, title = CreateSection(page, "Armor Set Action Highlights", "Outline action buttons that trigger your currently equipped armor set.", 80, "armorSetHighlight")
+    CreateDBCheckbox(section, "Use assisted-combat style outline for equipped set buttons", "armorSetActionHighlightEnabled",
+        "Outlines action buttons that trigger your currently equipped armor set, in the same style as the assisted combat highlight.",
+        function() addon:UpdateArmorSetHighlights() end)
+        :SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -10)
 
-    -- Micro Menu
-    local microMenuGroup, microMenuTitle = CreateSection(tabGeneral, "Micro Menu", "Adjust the appearance of the micro menu bar.", 110, "microMenuArt")
+    -- Micro menu
+    section, title = CreateSection(page, "Micro Menu", "Adjust the appearance of the micro menu bar.", 110, "microMenuArt")
+    local function ApplyMicroMenu() addon:UpdateMicroMenuArt() end
 
-    local microMenuArtCheck = W.CreateCheckbox(microMenuGroup)
-    microMenuArtCheck:SetPoint("TOPLEFT", microMenuTitle, "BOTTOMLEFT", 0, -10)
-    W.AttachHover(microMenuArtCheck, { body = "Hides the background art behind the micro menu buttons." })
-    microMenuArtCheck.Text:SetText("Hide micro menu background art")
-    microMenuArtCheck:SetChecked(addon.db.hideMicroMenuBackgroundArt)
-    microMenuArtCheck:SetScript("OnClick", function(self)
-        addon.db.hideMicroMenuBackgroundArt = self:GetChecked()
-        addon:UpdateMicroMenuArt()
-    end)
+    local hideBackground = CreateDBCheckbox(section, "Hide micro menu background art", "hideMicroMenuBackgroundArt",
+        "Hides the background art behind the micro menu buttons.", ApplyMicroMenu)
+    hideBackground:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -10)
 
-    local microMenuBorderCheck = W.CreateCheckbox(microMenuGroup)
-    microMenuBorderCheck:SetPoint("TOPLEFT", microMenuArtCheck, "BOTTOMLEFT", 0, -6)
-    W.AttachHover(microMenuBorderCheck, { body = "Hides the border art around the micro menu." })
-    microMenuBorderCheck.Text:SetText("Hide micro menu border art")
-    microMenuBorderCheck:SetChecked(addon.db.hideMicroMenuBorderArt)
-    microMenuBorderCheck:SetScript("OnClick", function(self)
-        addon.db.hideMicroMenuBorderArt = self:GetChecked()
-        addon:UpdateMicroMenuArt()
-    end)
+    CreateDBCheckbox(section, "Hide micro menu border art", "hideMicroMenuBorderArt",
+        "Hides the border art around the micro menu.", ApplyMicroMenu)
+        :SetPoint("TOPLEFT", hideBackground, "BOTTOMLEFT", 0, -6)
+end
 
-    -- ====================
-    -- FRAME ADJUSTMENTS TAB CONTENT
-    -- ====================
+-- ============================================================================
+-- Frame tweaks
+-- ============================================================================
 
-    -- Map Scale
-    local bgMapScale, bgMapTitle = CreateSection(tabFrameAdjustments, "Battleground Map Scale", "Adjust the battlefield map size (Shift+M).", 130)
-    
-    local scaleSlider = CreateDBSlider(bgMapScale, "Scale (%)", "battlegroundMapScale", 1.0, 0.5, 2.0, 0.1, 200, 0, 100,
-        function() addon:ApplyTweaks() end)
-    scaleSlider:SetPoint("TOPLEFT", bgMapTitle, "BOTTOMLEFT", 0, -28)
-    W.AttachHover(scaleSlider, { body = "Size of the battlefield map (Shift+M), where 100% is its normal size." })
+local function BuildFramePage(page)
+    local section, title
 
-    local mapLowestStrataCheckbox = W.CreateCheckbox(bgMapScale)
-    mapLowestStrataCheckbox:SetPoint("TOPLEFT", scaleSlider, "BOTTOMLEFT", 0, -10)
-    W.AttachHover(mapLowestStrataCheckbox, { body = "Draws the battlefield map beneath other frames, so it never covers them." })
-    mapLowestStrataCheckbox.Text:SetText("Force map to lowest strata")
-    mapLowestStrataCheckbox:SetChecked(addon.db.battlegroundMapForceLowestStrata)
-    mapLowestStrataCheckbox:SetScript("OnClick", function(self)
-        addon.db.battlegroundMapForceLowestStrata = self:GetChecked()
-        addon:ApplyTweaks()
-    end)
+    -- Battleground map
+    section, title = CreateSection(page, "Battleground Map Scale", "Adjust the battlefield map size (Shift+M).", 130)
+    local function ApplyMap() addon:UpdateBattlegroundMap() end
 
-    -- Experience Bars
-    local expBarStrataGroup, expBarStrataTitle = CreateSection(tabFrameAdjustments, "Experience Bars", "Adjust strata behavior for XP/reputation/honor tracking bars.", 80)
+    local mapScale = CreateDBSlider(section, "battlegroundMapScale",
+        { label = "Scale (%)", min = 0.5, max = 2.0, step = 0.1, width = 200, scale = 100, apply = ApplyMap },
+        "Size of the battlefield map (Shift+M), where 100% is its normal size.")
+    mapScale:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -28)
 
-    local expBarHighestStrataCheckbox = W.CreateCheckbox(expBarStrataGroup)
-    expBarHighestStrataCheckbox:SetPoint("TOPLEFT", expBarStrataTitle, "BOTTOMLEFT", 0, -10)
-    W.AttachHover(expBarHighestStrataCheckbox, { body = "Draws the experience, reputation and honor bars above other frames, so nothing covers them." })
-    expBarHighestStrataCheckbox.Text:SetText("Force experience bars to highest strata")
-    expBarHighestStrataCheckbox:SetChecked(addon.db.experienceBarsForceHighestStrata)
-    expBarHighestStrataCheckbox:SetScript("OnClick", function(self)
-        addon.db.experienceBarsForceHighestStrata = self:GetChecked()
-        addon:ApplyTweaks()
-    end)
+    CreateDBCheckbox(section, "Force map to lowest strata", "battlegroundMapForceLowestStrata",
+        "Draws the battlefield map beneath other frames, so it never covers them.", ApplyMap)
+        :SetPoint("TOPLEFT", mapScale, "BOTTOMLEFT", 0, -10)
 
-    -- Center Raid/Party Frames
-    local centerFramesGroup, centerFramesTitle = CreateSection(tabFrameAdjustments, "Raid & Party Frames", "Keep party and raid frame groups centered as they resize.", 110)
+    -- Experience bars
+    section, title = CreateSection(page, "Experience Bars", "Adjust strata behavior for XP/reputation/honor tracking bars.", 80)
+    CreateDBCheckbox(section, "Force experience bars to highest strata", "experienceBarsForceHighestStrata",
+        "Draws the experience, reputation and honor bars above other frames, so nothing covers them.",
+        function() addon:UpdateExperienceBarStrata() end)
+        :SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -10)
 
-    local centerPartyCheckbox = W.CreateCheckbox(centerFramesGroup)
-    centerPartyCheckbox:SetPoint("TOPLEFT", centerFramesTitle, "BOTTOMLEFT", 0, -10)
-    W.AttachHover(centerPartyCheckbox, { right = centerPartyCheckbox.Text, body = "Keeps the party frames centered on their position as members join and leave." })
-    centerPartyCheckbox.Text:SetText("Center party frames")
-    centerPartyCheckbox:SetChecked(addon.db.centerPartyFramesEnabled)
-    centerPartyCheckbox:SetScript("OnClick", function(self)
-        addon.db.centerPartyFramesEnabled = self:GetChecked()
-        addon:SetPartyFrameCenteringEnabled(addon.db.centerPartyFramesEnabled)
-    end)
+    -- Raid and party frames
+    section, title = CreateSection(page, "Raid & Party Frames", "Keep party and raid frame groups centered as they resize.", 110)
+    local function ApplyCentering() addon:UpdateRaidPartyFrameCentering() end
 
-    local centerRaidCheckbox = W.CreateCheckbox(centerFramesGroup)
-    centerRaidCheckbox:SetPoint("TOPLEFT", centerPartyCheckbox, "BOTTOMLEFT", 0, -6)
-    W.AttachHover(centerRaidCheckbox, { body = "Keeps the raid frame groups centered as the raid grows and shrinks." })
-    centerRaidCheckbox.Text:SetText("Center raid frames")
-    centerRaidCheckbox:SetChecked(addon.db.centerRaidFramesEnabled)
-    centerRaidCheckbox:SetScript("OnClick", function(self)
-        addon.db.centerRaidFramesEnabled = self:GetChecked()
-        addon:SetRaidFrameCenteringEnabled(addon.db.centerRaidFramesEnabled)
-    end)
+    local centerParty = CreateDBCheckbox(section, "Center party frames", "centerPartyFramesEnabled", false, ApplyCentering)
+    centerParty:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -10)
+    W.AttachHover(centerParty, { right = centerParty.Text, body = "Keeps the party frames centered on their position as members join and leave." })
 
-    local centerFramesDebugCheckbox = W.CreateCheckbox(centerFramesGroup)
-    centerFramesDebugCheckbox:SetPoint("LEFT", centerPartyCheckbox, "RIGHT", 220, 0)
-    W.AttachHover(centerFramesDebugCheckbox, { left = centerFramesDebugCheckbox, body = "Prints a message to chat each time the party or raid frames are re-centered, for troubleshooting." })
-    centerFramesDebugCheckbox.Text:SetText("Debug logging")
-    centerFramesDebugCheckbox:SetChecked(addon.db.centerFramesDebug)
-    centerFramesDebugCheckbox:SetScript("OnClick", function(self)
-        addon.db.centerFramesDebug = self:GetChecked()
-    end)
+    CreateDBCheckbox(section, "Center raid frames", "centerRaidFramesEnabled",
+        "Keeps the raid frame groups centered as the raid grows and shrinks.", ApplyCentering)
+        :SetPoint("TOPLEFT", centerParty, "BOTTOMLEFT", 0, -6)
 
+    local centerDebug = CreateDBCheckbox(section, "Debug logging", "centerFramesDebug", false)
+    centerDebug:SetPoint("LEFT", centerParty, "RIGHT", 220, 0)
+    W.AttachHover(centerDebug, { left = centerDebug, body = "Prints a message to chat each time the party or raid frames are re-centered, for troubleshooting. Type /guit debug to list where they are now." })
 
-    -- Top Center Widget Offset
-    local topCenterWidgetGroup, topCenterWidgetTitle = CreateSection(tabFrameAdjustments, "Top Center Widget Offset", "Move UIWidgetTopCenterContainerFrame downward on the screen.", 100)
+    -- Top center widgets
+    section, title = CreateSection(page, "Top Center Widget Offset", "Move the widgets at the top center of the screen downward.", 100)
+    local topCenterOffset = CreateDBSlider(section, "topCenterWidgetOffset",
+        { label = "Offset", min = 0, max = 100, step = 1, width = 340, apply = function() addon:UpdateTopCenterWidgetOffset() end },
+        "Moves the widgets at the top center of the screen, such as battleground scores and zone objectives, down by this many pixels.")
+    topCenterOffset:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -28)
+end
 
-    local topCenterWidgetSlider = CreateDBSlider(topCenterWidgetGroup, "Offset", "topCenterWidgetOffset", 0, 0, 100, 1, 340, 0, nil,
-        function(value) addon:ApplyTopCenterWidgetOffset(value) end)
-    topCenterWidgetSlider:SetPoint("TOPLEFT", topCenterWidgetTitle, "BOTTOMLEFT", 0, -28)
-    W.AttachHover(topCenterWidgetSlider, { body = "Moves the widgets at the top center of the screen, such as battleground scores and zone objectives, down by this many pixels." })
+-- ============================================================================
+-- Chat
+-- ============================================================================
 
-    -- ====================
-    -- CHAT TAB
-    -- ====================
-    local chatPanel, chatTitle = CreateSection(tabChat, "Chat Entry Box", "Customize the position and appearance of the chat input box.", 264)
+local function BuildChatPage(page)
+    local section, title
 
-    -- Unlock / Drag
-    local chatUnlock = W.CreateCheckbox(chatPanel)
-    chatUnlock:SetPoint("TOPLEFT", chatTitle, "BOTTOMLEFT", 0, -12)
-    W.AttachHover(chatUnlock, { body = "Lets you move the chat entry box: hold Shift and drag it." })
-    chatUnlock.Text:SetText("Unlock Chat Entry Box (Hold SHIFT to Drag)")
-    chatUnlock:SetChecked(addon.db.chatEditBoxUnlock)
-    chatUnlock:SetScript("OnClick", function(self)
-        addon.db.chatEditBoxUnlock = self:GetChecked()
-        addon:SetChatEditBoxUnlock(addon.db.chatEditBoxUnlock)
-    end)
+    -- Chat entry box
+    section, title = CreateSection(page, "Chat Entry Box", "Customize the position and appearance of the chat input box.", 264)
+    local entryBoxSection = section
+    local function ApplyEditBox() addon:UpdateChatEditBox() end
 
-    -- Disable Borders
-    local borderCheckbox = W.CreateCheckbox(chatPanel)
-    borderCheckbox:SetPoint("TOPLEFT", chatUnlock, "BOTTOMLEFT", 0, -12)
-    W.AttachHover(borderCheckbox, { body = "Hides the default border textures around the chat entry box." })
-    borderCheckbox.Text:SetText("Hide Default Borders")
-    borderCheckbox:SetChecked(addon.db.chatEditBoxHideBorder)
-    borderCheckbox:SetScript("OnClick", function(self)
-        addon.db.chatEditBoxHideBorder = self:GetChecked()
-        addon:UpdateChatEditBox()
-    end)
-    
-    -- Width Slider
-    local widthSlider = CreateDBSlider(chatPanel, "Width", "chatEditBoxWidth", 450, 200, 1000, 10, 340, 0, nil,
-        function() addon:UpdateChatEditBox() end)
-    widthSlider:SetPoint("TOPLEFT", borderCheckbox, "BOTTOMLEFT", 6, -30)
-    W.AttachHover(widthSlider, { body = "Width of the chat entry box, in pixels." })
+    local unlock = CreateDBCheckbox(section, "Unlock Chat Entry Box (Hold SHIFT to Drag)", "chatEditBoxUnlock",
+        "Lets you move the chat entry box: hold Shift and drag it. Until it has been moved, the game places it as usual.", ApplyEditBox)
+    unlock:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -12)
 
-    -- Anchor Dropdown
-    local anchorLabel = chatPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    anchorLabel:SetPoint("TOPLEFT", widthSlider, "BOTTOMLEFT", 0, -20)
-    anchorLabel:SetText("Resize Anchor (Determines growth direction):")
+    local hideBorder = CreateDBCheckbox(section, "Hide Default Borders", "chatEditBoxHideBorder",
+        "Hides the default border textures around the chat entry box.", ApplyEditBox)
+    hideBorder:SetPoint("TOPLEFT", unlock, "BOTTOMLEFT", 0, -12)
 
-    local anchorDropdown = CreateDBChoiceDropdown(chatPanel, 120, {
+    local width = CreateDBSlider(section, "chatEditBoxWidth",
+        { label = "Width", min = 200, max = 1000, step = 10, width = 340, apply = ApplyEditBox },
+        "Width of the chat entry box, in pixels. Applies once the box has been moved.")
+    width:SetPoint("TOPLEFT", hideBorder, "BOTTOMLEFT", 6, -30)
+
+    local anchorLabel = CreateLabel(section, "Resize Anchor (Determines growth direction):")
+    anchorLabel:SetPoint("TOPLEFT", width, "BOTTOMLEFT", 0, -20)
+
+    local anchorDropdown = CreateDBChoiceDropdown(section, 120, {
         { text = "LEFT", value = "LEFT" },
         { text = "CENTER", value = "CENTER" },
         { text = "RIGHT", value = "RIGHT" },
-    }, "chatEditBoxAnchor", "CENTER", function() addon:UpdateChatEditBox() end)
+    }, "chatEditBoxAnchor", ApplyEditBox)
     anchorDropdown:SetPoint("TOPLEFT", anchorLabel, "BOTTOMLEFT", 0, -5)
     W.AttachHover(anchorDropdown, { top = anchorLabel, body = "Which part of the chat entry box stays in place when its width changes: Left grows it to the right, Right grows it to the left, and Center grows it both ways." })
 
-    -- Extend the main chat frame over the strip the entry box used to occupy
-    local extendChatPane = W.CreateCheckbox(chatPanel)
-    extendChatPane:SetPoint("TOPLEFT", anchorLabel, "BOTTOMLEFT", -6, -44) -- -6 lines it up with the checkboxes above
-    W.AttachHover(extendChatPane, { body = "Stretches the main chat window down over the strip the game keeps free for the chat entry box." })
-    extendChatPane.Text:SetText("Extend Default Chat Pane (fills the space left for the chat entry box)")
-    extendChatPane:SetChecked(addon.db.extendDefaultChatPane)
-    extendChatPane:SetScript("OnClick", function(self)
-        addon.db.extendDefaultChatPane = self:GetChecked()
-        addon:UpdateChatPaneExtend()
-    end)
+    local extendPane = CreateDBCheckbox(section, "Extend Default Chat Pane (fills the space left for the chat entry box)", "extendDefaultChatPane",
+        "Stretches the main chat window down over the strip the game keeps free for the chat entry box.",
+        function() addon:UpdateChatPaneExtend() end)
+    extendPane:SetPoint("TOPLEFT", anchorLabel, "BOTTOMLEFT", -6, -44) -- -6 lines it up with the checkboxes above
     if not addon:IsFeatureSupported("chatPaneExtend") then
-        -- Last row of the section, so the section just gets shorter
-        extendChatPane:Hide()
-        chatPanel:SetHeight(chatPanel:GetHeight() - 34)
-        tabChat.totalHeight = tabChat.totalHeight - 34
+        DropLastRow(page, entryBoxSection, extendPane, 34)
     end
 
-    -- Chat Frame Button Background
-    local chatButtonBG, chatButtonTitle = CreateSection(tabChat, "Chat Frame Buttons", "Hide the minimize button, background and borders on chat frames.", 200)
-    
-    local hideChatButtonBG = W.CreateCheckbox(chatButtonBG)
-    hideChatButtonBG:SetPoint("TOPLEFT", chatButtonTitle, "BOTTOMLEFT", 0, -12)
-    W.AttachHover(hideChatButtonBG, { body = "Hides the background and border behind the buttons beside the chat window, and the minimize button." })
-    hideChatButtonBG.Text:SetText("Hide Button Background, Border & Minimize")
-    hideChatButtonBG:SetChecked(addon.db.hideChatButtonFrameBackground)
-    hideChatButtonBG:SetScript("OnClick", function(self)
-        addon.db.hideChatButtonFrameBackground = self:GetChecked()
-        addon:ApplyTweaks()
-    end)
+    -- Chat frame buttons
+    section, title = CreateSection(page, "Chat Frame Buttons", "Hide the minimize button, background and borders on chat frames.", 200)
+    local buttonSection = section
+    local function ApplyButtons() addon:UpdateChatButtons() end
 
-    local hideMenuButton = W.CreateCheckbox(chatButtonBG)
-    hideMenuButton:SetPoint("TOPLEFT", hideChatButtonBG, "BOTTOMLEFT", 0, -4)
-    W.AttachHover(hideMenuButton, { body = "Hides the chat menu button beside the chat window." })
-    hideMenuButton.Text:SetText("Hide Chat Menu Button")
-    hideMenuButton:SetChecked(addon.db.hideChatFrameMenuButton)
-    hideMenuButton:SetScript("OnClick", function(self)
-        addon.db.hideChatFrameMenuButton = self:GetChecked()
-        addon:ApplyTweaks()
-    end)
+    local hideButtonFrame = CreateDBCheckbox(section, "Hide Button Background, Border & Minimize", "hideChatButtonFrameBackground",
+        "Hides the background and border behind the buttons beside the chat window, and the minimize button.", ApplyButtons)
+    hideButtonFrame:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -12)
 
-    local hideChannelButton = W.CreateCheckbox(chatButtonBG)
-    hideChannelButton:SetPoint("TOPLEFT", hideMenuButton, "BOTTOMLEFT", 0, -4)
-    W.AttachHover(hideChannelButton, { body = "Hides the chat channels button beside the chat window." })
-    hideChannelButton.Text:SetText("Hide Chat Channel Button")
-    hideChannelButton:SetChecked(addon.db.hideChatFrameChannelButton)
-    hideChannelButton:SetScript("OnClick", function(self)
-        addon.db.hideChatFrameChannelButton = self:GetChecked()
-        addon:ApplyTweaks()
-    end)
+    local hideMenu = CreateDBCheckbox(section, "Hide Chat Menu Button", "hideChatFrameMenuButton",
+        "Hides the chat menu button beside the chat window.", ApplyButtons)
+    hideMenu:SetPoint("TOPLEFT", hideButtonFrame, "BOTTOMLEFT", 0, -4)
 
-    local hideQuickJoinButton = W.CreateCheckbox(chatButtonBG)
-    hideQuickJoinButton:SetPoint("TOPLEFT", hideChannelButton, "BOTTOMLEFT", 0, -4)
-    W.AttachHover(hideQuickJoinButton, { body = "Hides the social (Quick Join) button beside the chat window." })
-    hideQuickJoinButton.Text:SetText("Hide Social Button (Quick Join)")
-    hideQuickJoinButton:SetChecked(addon.db.hideQuickJoinToastButton)
-    hideQuickJoinButton:SetScript("OnClick", function(self)
-        addon.db.hideQuickJoinToastButton = self:GetChecked()
-        addon:ApplyTweaks()
-    end)
+    local hideChannel = CreateDBCheckbox(section, "Hide Chat Channel Button", "hideChatFrameChannelButton",
+        "Hides the chat channels button beside the chat window.", ApplyButtons)
+    hideChannel:SetPoint("TOPLEFT", hideMenu, "BOTTOMLEFT", 0, -4)
 
-    local chatButtonsOnRight = W.CreateCheckbox(chatButtonBG)
-    chatButtonsOnRight:SetPoint("TOPLEFT", hideQuickJoinButton, "BOTTOMLEFT", 0, -4)
-    W.AttachHover(chatButtonsOnRight, { body = "Moves the chat window's buttons to its right side." })
-    chatButtonsOnRight.Text:SetText("Move Buttons to Right Side of Chat")
-    chatButtonsOnRight:SetChecked(addon.db.chatButtonsOnRight)
-    chatButtonsOnRight:SetScript("OnClick", function(self)
-        addon.db.chatButtonsOnRight = self:GetChecked()
-        addon:ApplyTweaks()
-    end)
+    local hideQuickJoin = CreateDBCheckbox(section, "Hide Social Button (Quick Join)", "hideQuickJoinToastButton",
+        "Hides the social (Quick Join) button beside the chat window.", ApplyButtons)
+    hideQuickJoin:SetPoint("TOPLEFT", hideChannel, "BOTTOMLEFT", 0, -4)
+
+    local buttonsOnRight = CreateDBCheckbox(section, "Move Buttons to Right Side of Chat", "chatButtonsOnRight",
+        "Moves the chat window's buttons to its right side.", function() addon:UpdateChatButtonSide() end)
+    buttonsOnRight:SetPoint("TOPLEFT", hideQuickJoin, "BOTTOMLEFT", 0, -4)
     if not addon:IsFeatureSupported("chatButtonSide") then
-        -- Last row of the section, so the section just gets shorter
-        chatButtonsOnRight:Hide()
-        chatButtonBG:SetHeight(chatButtonBG:GetHeight() - 30)
-        tabChat.totalHeight = tabChat.totalHeight - 30
+        DropLastRow(page, buttonSection, buttonsOnRight, 30)
     end
 
-    -- Chat Tabs
-    local chatTabsGroup, chatTabsTitle = CreateSection(tabChat, "Chat Tabs", "Control visibility of the tabs above chat frames.", 110)
+    -- Chat tabs
+    section, title = CreateSection(page, "Chat Tabs", "Control visibility of the tabs above chat frames.", 110)
+    local function ApplyTabs() addon:UpdateChatTabs() end
 
-    local hideChatTabs = W.CreateCheckbox(chatTabsGroup)
-    hideChatTabs:SetPoint("TOPLEFT", chatTabsTitle, "BOTTOMLEFT", 0, -10)
-    W.AttachHover(hideChatTabs, { body = "Hides the tabs above each chat window." })
-    hideChatTabs.Text:SetText("Hide Chat Tabs")
-    hideChatTabs:SetChecked(addon.db.hideChatTabs)
+    local hideTabs = CreateDBCheckbox(section, "Hide Chat Tabs", "hideChatTabs",
+        "Hides the tabs above each chat window.", ApplyTabs)
+    hideTabs:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -10)
 
-    local showChatTabsOnHover = W.CreateCheckbox(chatTabsGroup)
-    showChatTabsOnHover:SetPoint("TOPLEFT", hideChatTabs, "BOTTOMLEFT", 16, -6)
-    W.AttachHover(showChatTabsOnHover, { body = "While chat tabs are hidden, shows them again when you mouse over the chat window. Needs Hide Chat Tabs." })
-    showChatTabsOnHover.Text:SetText("Show Chat Tabs on Hover")
-    showChatTabsOnHover:SetChecked(addon.db.showChatTabsOnHover)
-    showChatTabsOnHover:SetScript("OnClick", function(self)
-        addon.db.showChatTabsOnHover = self:GetChecked()
-        addon:ApplyTweaks()
+    local showTabsOnHover = CreateDBCheckbox(section, "Show Chat Tabs on Hover", "showChatTabsOnHover",
+        "While chat tabs are hidden, shows them again when you mouse over the chat window. Needs Hide Chat Tabs.", ApplyTabs)
+    showTabsOnHover:SetPoint("TOPLEFT", hideTabs, "BOTTOMLEFT", 16, -6)
+    DependOn(hideTabs, { showTabsOnHover })
+
+    -- Chat text font, per window
+    section, title = CreateSection(page, "Chat Text Font", "Change the typeface and size of the text in each chat window.", 270)
+    local selectedWindow = 1
+    local RefreshFontControls
+
+    local windowLabel = CreateLabel(section, "Chat Window")
+    windowLabel:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -14)
+
+    -- Options are rebuilt each time it opens, so new and renamed windows are listed
+    local windowDropdown = W.CreateChoiceDropdown(section, 210,
+        function()
+            local options = {}
+            for i, id in ipairs(addon:GetChatWindowIDs()) do
+                options[i] = { text = addon:GetChatWindowName(id), value = id }
+            end
+            return options
+        end,
+        function() return selectedWindow end,
+        function(id)
+            selectedWindow = id
+            RefreshFontControls()
+        end)
+    windowDropdown:SetPoint("TOPLEFT", windowLabel, "BOTTOMLEFT", 0, -2)
+    W.AttachHover(windowDropdown, { top = windowLabel, body = "The chat window whose font the settings below change. Each window keeps its own." })
+
+    local fontLabel = CreateLabel(section, "Typeface")
+    fontLabel:SetPoint("TOPLEFT", windowLabel, "BOTTOMLEFT", 0, -46)
+
+    local fontDropdown = CreateFontDropdown(section,
+        function() return addon:GetChatFontOverride(selectedWindow).font end,
+        function(path) addon:SetChatFontOverride(selectedWindow, "font", path) end)
+    fontDropdown:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -2)
+    W.AttachHover(fontDropdown, { top = fontLabel, body = "Typeface for the text in the selected chat window." })
+
+    local sizeSlider = W.CreateSlider(section, {
+        label = "Font Size", min = 8, max = 32, step = 1, width = 300,
+        value = addon:GetChatFontSize(selectedWindow),
+        onChange = function(value) addon:SetChatFontOverride(selectedWindow, "size", value) end,
+    })
+    sizeSlider:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -62)
+    W.AttachHover(sizeSlider, { body = "Size of the text in the selected chat window." })
+
+    -- Shows the selected window's current font and size
+    function RefreshFontControls()
+        windowDropdown:Refresh()
+        fontDropdown:Refresh()
+        sizeSlider:SetValue(addon:GetChatFontSize(selectedWindow), true)
+    end
+
+    local resetFont = CreateButton(section, "Reset This Window", 160, function()
+        addon:ResetChatFont(selectedWindow)
+        RefreshFontControls()
     end)
+    resetFont:SetPoint("TOPLEFT", sizeSlider, "BOTTOMLEFT", 0, -26)
 
-    local function UpdateChatTabHoverControl()
-        if addon.db.hideChatTabs then
-            showChatTabsOnHover:Enable()
-            showChatTabsOnHover.Text:SetTextColor(1, 1, 1)
-        else
-            showChatTabsOnHover:Disable()
-            showChatTabsOnHover.Text:SetTextColor(0.5, 0.5, 0.5)
+    section:SetScript("OnShow", RefreshFontControls)
+    RefreshFontControls()
+end
+
+-- ============================================================================
+-- Speed panel
+-- ============================================================================
+
+local function BuildSpeedPage(page)
+    local section, title
+    local function ApplySpeedPanel() addon:UpdateSpeedPanel() end
+
+    section, title = CreateSection(page, "Speed Panel", "Displays your current movement speed.", 185)
+
+    local enabled = CreateDBCheckbox(section, "Enable Speed Panel", "speedPanelEnabled",
+        "Shows a small panel with your current movement speed.", ApplySpeedPanel)
+    enabled:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -12)
+
+    local locked = CreateDBCheckbox(section, "Lock Panel Position", "speedPanelLocked",
+        "Stops the speed panel from being dragged. Unlock it to move it.", ApplySpeedPanel)
+    locked:SetPoint("TOPLEFT", enabled, "BOTTOMLEFT", 0, -12)
+
+    local reset = CreateButton(section, "Reset Position", 120, function()
+        addon:ResetSettings({ "speedPanelPosition" })
+        ApplySpeedPanel()
+    end, "Puts the speed panel back in its starting place, below the middle of the screen.")
+    reset:SetPoint("TOPLEFT", locked, "BOTTOMLEFT", 0, -16)
+
+    local info = CreateLabel(section, "Drag the panel to move it when unlocked.")
+    info:SetPoint("TOPLEFT", reset, "BOTTOMLEFT", 0, -16)
+    info:SetWidth(300)
+    info:SetJustifyH("LEFT")
+
+    DependOn(enabled, { locked, reset })
+
+    -- Appearance
+    section, title = CreateSection(page, "Appearance", "Font, colors, background and border of the speed panel.", 460)
+
+    -- Dropdown over a list of { key, name } options
+    local function CreateOptionDropdown(options, dbKey)
+        local choices = {}
+        for i, option in ipairs(options) do
+            choices[i] = { text = option.name, value = option.key }
+        end
+        return CreateDBChoiceDropdown(section, 210, choices, dbKey, ApplySpeedPanel)
+    end
+
+    local fontLabel = CreateLabel(section, "Typeface")
+    fontLabel:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -14)
+    local fontDropdown = CreateDBFontDropdown(section, "speedPanelFont", ApplySpeedPanel)
+    fontDropdown:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -2)
+    W.AttachHover(fontDropdown, { top = fontLabel, body = "Typeface for the speed panel's text." })
+
+    local outlineLabel = CreateLabel(section, "Outline")
+    outlineLabel:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -46)
+    local outlineDropdown = CreateOptionDropdown(addon:GetSpeedPanelOutlineOptions(), "speedPanelFontOutline")
+    outlineDropdown:SetPoint("TOPLEFT", outlineLabel, "BOTTOMLEFT", 0, -2)
+    W.AttachHover(outlineDropdown, { top = outlineLabel, body = "Outline drawn around the speed panel's text." })
+
+    local sizeSlider = CreateDBSlider(section, "speedPanelFontSize",
+        { label = "Font Size", min = 8, max = 40, step = 1, width = 300, apply = ApplySpeedPanel },
+        "Size of the speed panel's text.")
+    sizeSlider:SetPoint("TOPLEFT", outlineLabel, "BOTTOMLEFT", 0, -62)
+
+    local textColor = CreateColorSwatch(section, "Text Color", "speedPanelTextColor", ApplySpeedPanel)
+    textColor:SetPoint("TOPLEFT", sizeSlider, "BOTTOMLEFT", 0, -28)
+
+    local backgroundLabel = CreateLabel(section, "Background")
+    backgroundLabel:SetPoint("TOPLEFT", textColor, "BOTTOMLEFT", 0, -18)
+    local backgroundDropdown = CreateOptionDropdown(addon:GetSpeedPanelBackgroundOptions(), "speedPanelBackgroundKey")
+    backgroundDropdown:SetPoint("TOPLEFT", backgroundLabel, "BOTTOMLEFT", 0, -2)
+    W.AttachHover(backgroundDropdown, { top = backgroundLabel, body = "Texture filling the speed panel's background. Its color is set below." })
+
+    local backgroundColor = CreateColorSwatch(section, "Background Color / Opacity", "speedPanelBackgroundColor", ApplySpeedPanel)
+    backgroundColor:SetPoint("TOPLEFT", backgroundLabel, "BOTTOMLEFT", 0, -46)
+
+    local borderLabel = CreateLabel(section, "Border")
+    borderLabel:SetPoint("TOPLEFT", backgroundColor, "BOTTOMLEFT", 0, -18)
+    local borderDropdown = CreateOptionDropdown(addon:GetSpeedPanelBorderOptions(), "speedPanelBorderKey")
+    borderDropdown:SetPoint("TOPLEFT", borderLabel, "BOTTOMLEFT", 0, -2)
+    W.AttachHover(borderDropdown, { top = borderLabel, body = "Border drawn around the speed panel. Its color is set below." })
+
+    local borderColor = CreateColorSwatch(section, "Border Color (shown when locked)", "speedPanelBorderColor", ApplySpeedPanel)
+    borderColor:SetPoint("TOPLEFT", borderLabel, "BOTTOMLEFT", 0, -46)
+end
+
+-- ============================================================================
+-- Cooldowns
+-- ============================================================================
+
+local function BuildCooldownPage(page)
+    local section, title = CreateSection(page, "Cooldown Timer at Mouse", "Shows the time remaining beside the cursor when you press a spell that is still on cooldown.", 380, "cooldownAtMouse")
+    local function ApplyCooldown() addon:UpdateCooldownAtMouse() end
+
+    local enabled = CreateDBCheckbox(section, "Show Cooldown Timer at Mouse", "cooldownAtMouseEnabled",
+        "When you press a spell that's still on cooldown, shows the time left beside your cursor.", ApplyCooldown)
+    enabled:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -12)
+
+    local duration = CreateDBSlider(section, "cooldownAtMouseDuration",
+        { label = "Duration (s)", min = 1, max = 10, step = 0.5, width = 200, decimals = 1 },
+        "How long the timer stays beside the cursor, in seconds.")
+    duration:SetPoint("TOPLEFT", enabled, "BOTTOMLEFT", 0, -28)
+
+    local offset = CreateDBSlider(section, "cooldownAtMouseOffset",
+        { label = "Offset Distance", min = 0, max = 300, step = 1, width = 300 },
+        "How far from the cursor the timer appears, in pixels.")
+    offset:SetPoint("TOPLEFT", duration, "BOTTOMLEFT", 0, -36)
+
+    local angle = CreateDBSlider(section, "cooldownAtMouseAngle",
+        { label = "Offset Rotation (0 = above)", min = 0, max = 355, step = 5, width = 300 },
+        "Which direction from the cursor the timer appears, in degrees clockwise from straight above: 90 is to the right, 180 below.")
+    angle:SetPoint("TOPLEFT", offset, "BOTTOMLEFT", 0, -36)
+
+    local size = CreateDBSlider(section, "cooldownAtMouseFontSize",
+        { label = "Font Size", min = 8, max = 72, step = 1, width = 300, apply = ApplyCooldown },
+        "Size of the cooldown timer text.")
+    size:SetPoint("TOPLEFT", angle, "BOTTOMLEFT", 0, -36)
+
+    local fontLabel = CreateLabel(section, "Typeface")
+    fontLabel:SetPoint("TOPLEFT", size, "BOTTOMLEFT", 0, -24)
+    local fontDropdown = CreateDBFontDropdown(section, "cooldownAtMouseFont", ApplyCooldown)
+    fontDropdown:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -2)
+    W.AttachHover(fontDropdown, { top = fontLabel, body = "Typeface for the cooldown timer." })
+
+    DependOn(enabled, { duration, offset, angle, size, fontDropdown, fontLabel })
+end
+
+-- ============================================================================
+-- Combat text
+-- ============================================================================
+
+-- A section with a slider per damage number setting in `group`, then a reset button. The
+-- sliders show the live CVar values, re-read whenever the section is shown, rather than a
+-- saved copy (see DamageNumbers.lua).
+local function CreateDamageNumberSection(page, group, titleText, descriptionText, featureID)
+    local settings = addon:GetDamageNumberSettings(group)
+    local section, title = CreateSection(page, titleText, descriptionText, 80 + #settings * 56, featureID)
+
+    local sliders = {}
+    local anchor, gap = title, -28
+    for _, setting in ipairs(settings) do
+        local key = setting.key
+        local slider = W.CreateSlider(section, {
+            label = setting.label, min = setting.min, max = setting.max, step = setting.step,
+            decimals = setting.decimals, width = 300,
+            value = addon:GetDamageNumberSetting(key),
+            onChange = function(value) addon:SetDamageNumberSetting(key, value) end,
+        })
+        slider:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, gap)
+        W.AttachHover(slider, { body = setting.tooltip })
+        sliders[key] = slider
+        anchor, gap = slider, -36
+    end
+
+    local function Refresh()
+        for key, slider in pairs(sliders) do
+            slider:SetValue(addon:GetDamageNumberSetting(key), true)
         end
     end
-    UpdateChatTabHoverControl()
 
-    hideChatTabs:SetScript("OnClick", function(self)
-        addon.db.hideChatTabs = self:GetChecked()
-        UpdateChatTabHoverControl()
-        addon:ApplyTweaks()
-    end)
+    local reset = CreateButton(section, "Reset to Defaults", 160, function()
+        addon:ResetDamageNumberSettings(group)
+        Refresh()
+    end, "Puts the settings in this section back to the game's defaults.")
+    reset:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -26)
 
+    section:SetScript("OnShow", Refresh)
+end
 
-    -- ====================
-    -- SPEED PANEL TAB
-    -- ====================
-    local speedPanel, speedTitle = CreateSection(tabSpeed, "Speed Panel", "Displays your current movement speed.", 185)
-    
-    local speedCheckbox = W.CreateCheckbox(speedPanel)
-    speedCheckbox:SetPoint("TOPLEFT", speedTitle, "BOTTOMLEFT", 0, -12)
-    W.AttachHover(speedCheckbox, { body = "Shows a small panel with your current movement speed." })
-    speedCheckbox.Text:SetText("Enable Speed Panel")
-    speedCheckbox:SetChecked(addon.db.speedPanelEnabled)
+local function BuildCombatTextPage(page)
+    CreateDamageNumberSection(page, "position", "Damage Number Position", "Move the damage numbers above enemies higher or lower.", "damageNumberPosition")
+    CreateDamageNumberSection(page, "spread", "Damage Number Movement", "Control how far damage numbers rise, drift and scatter.", "damageNumberSpread")
 
-    local lockCheckbox = W.CreateCheckbox(speedPanel)
-    lockCheckbox:SetPoint("TOPLEFT", speedCheckbox, "BOTTOMLEFT", 0, -12)
-    W.AttachHover(lockCheckbox, { body = "Stops the speed panel from being dragged. Unlock it to move it." })
-    lockCheckbox.Text:SetText("Lock Panel Position")
-    lockCheckbox:SetChecked(addon.db.speedPanelLocked)
+    -- Saved in GarageUITweaksDB, unlike the sections above (see SelfCombatText.lua)
+    local section, title = CreateSection(page, "Self Combat Text Position", "Move the scrolling text for things that happen to you, such as damage taken and heals received.", 256, "selfCombatText")
+    local function ApplySelfCombatText() addon:UpdateSelfCombatText() end
 
-    local resetButton = CreateFrame("Button", nil, speedPanel, "UIPanelButtonTemplate")
-    resetButton:SetPoint("TOPLEFT", lockCheckbox, "BOTTOMLEFT", 0, -16)
-    resetButton:SetSize(120, 22)
-    resetButton:SetText("Reset Position")
-    
-    local speedInfo = speedPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    speedInfo:SetPoint("TOPLEFT", resetButton, "BOTTOMLEFT", 0, -16)
-    speedInfo:SetWidth(300)
-    speedInfo:SetJustifyH("LEFT")
-    speedInfo:SetText("Drag the panel to move it when unlocked.")
+    local offsetX = CreateDBSlider(section, "selfCombatTextOffsetX",
+        { label = "Horizontal Offset", min = -1000, max = 1000, step = 5, width = 300, apply = ApplySelfCombatText },
+        "Moves your scrolling combat text left (negative) or right (positive).")
+    offsetX:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -28)
 
-    -- Speed Panel Logic
-    local function UpdateSpeedControls()
-        local enabled = addon.db.speedPanelEnabled
-        lockCheckbox:Enable()
-        resetButton:SetEnabled(enabled)
-        if enabled then
-             lockCheckbox.Text:SetTextColor(1, 1, 1)
-        else
-             lockCheckbox:SetChecked(true) -- Always lock when disabled visually
-             lockCheckbox:Disable()
-             lockCheckbox.Text:SetTextColor(0.5, 0.5, 0.5)
-        end
-    end
-    
-    speedCheckbox:SetScript("OnClick", function(self)
-        addon.db.speedPanelEnabled = self:GetChecked()
-        addon:SetSpeedPanelEnabled(addon.db.speedPanelEnabled)
-        UpdateSpeedControls()
-    end)
-    
-    lockCheckbox:SetScript("OnClick", function(self)
-        addon.db.speedPanelLocked = self:GetChecked()
-        addon:RefreshSpeedPanelLock()
-    end)
+    local offsetY = CreateDBSlider(section, "selfCombatTextOffsetY",
+        { label = "Vertical Offset", min = -1000, max = 1000, step = 5, width = 300, apply = ApplySelfCombatText },
+        "Moves your scrolling combat text down (negative) or up (positive).")
+    offsetY:SetPoint("TOPLEFT", offsetX, "BOTTOMLEFT", 0, -36)
 
-    resetButton:SetScript("OnClick", function() addon:ResetSpeedPanelPosition() end)
-    UpdateSpeedControls()
+    local travel = CreateDBSlider(section, "selfCombatTextTravel",
+        { label = "Travel Distance (%)", min = 25, max = 400, step = 5, width = 300 },
+        "How far your combat text scrolls before it fades, as a percentage of the game's distance. It takes the same time either way, so a longer distance also scrolls faster. Applies to text that starts after the change.")
+    travel:SetPoint("TOPLEFT", offsetY, "BOTTOMLEFT", 0, -36)
 
-    -------------------------------------------------------
-    -- Background Panel Tab
-    -------------------------------------------------------
-    local bgPanel = CreateSection(tabBackground, "Background Panel", "Configure the global background panel.", 470)
+    local reset = CreateButton(section, "Reset to Defaults", 160, function()
+        addon:ResetSettings({ "selfCombatTextOffsetX", "selfCombatTextOffsetY", "selfCombatTextTravel" })
+        offsetX:SetValue(addon.db.selfCombatTextOffsetX, true)
+        offsetY:SetValue(addon.db.selfCombatTextOffsetY, true)
+        travel:SetValue(addon.db.selfCombatTextTravel, true)
+        ApplySelfCombatText()
+    end, "Puts your scrolling combat text back where the game places it, at the game's travel distance.")
+    reset:SetPoint("TOPLEFT", travel, "BOTTOMLEFT", 0, -26)
+end
 
-    -- Enable Panel
-    local chkBGEnable = W.CreateCheckbox(bgPanel)
-    chkBGEnable:SetPoint("TOPLEFT", bgPanel, "TOPLEFT", 16, -40)
-    W.AttachHover(chkBGEnable, { body = "Shows a colored panel you can size and place anywhere, for example behind other parts of your UI." })
-    chkBGEnable.Text:SetText("Enable Background Panel")
-    chkBGEnable:SetChecked(addon.db.backgroundPanelEnabled)
-    chkBGEnable:SetScript("OnClick", function(self)
-        addon.db.backgroundPanelEnabled = self:GetChecked()
-        addon:UpdateBackgroundPanel()
-    end)
-    
-    -- Lock Panel
-    local chkBGLock = W.CreateCheckbox(bgPanel)
-    chkBGLock:SetPoint("TOPLEFT", chkBGEnable, "BOTTOMLEFT", 0, -8)
-    W.AttachHover(chkBGLock, { body = "Stops the background panel from being dragged or resized." })
-    chkBGLock.Text:SetText("Lock Panel Position")
-    chkBGLock:SetChecked(addon.db.backgroundPanelLocked)
-    chkBGLock:SetScript("OnClick", function(self)
-        addon.db.backgroundPanelLocked = self:GetChecked()
-        addon:UpdateBackgroundPanel()
-    end)
-    
-    -- Force Screen Width
-    local chkBGForce = W.CreateCheckbox(bgPanel)
-    chkBGForce:SetPoint("TOPLEFT", chkBGLock, "BOTTOMLEFT", 0, -8)
-    W.AttachHover(chkBGForce, { body = "Makes the background panel exactly as wide as the screen." })
-    chkBGForce.Text:SetText("Force Screen Width")
-    chkBGForce:SetChecked(addon.db.backgroundPanelForceWidth)
+-- ============================================================================
+-- Nameplates
+-- ============================================================================
 
-    -- Force Screen Height
-    local chkBGForceH = W.CreateCheckbox(bgPanel)
-    chkBGForceH:SetPoint("TOPLEFT", chkBGForce, "BOTTOMLEFT", 0, -8)
-    W.AttachHover(chkBGForceH, { body = "Makes the background panel exactly as tall as the screen." })
-    chkBGForceH.Text:SetText("Force Screen Height")
-    chkBGForceH:SetChecked(addon.db.backgroundPanelForceHeight)
+local function BuildNameplatePage(page)
+    local section, title = CreateSection(page, "Friendly Simplified Names", "Render readable names above simplified friendly player nameplates.", 590)
+    local function ApplyNames() addon:UpdateFriendlyNameplates() end
 
-    -- Color Picker
-    local lblBGColor = bgPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    lblBGColor:SetPoint("TOPLEFT", chkBGForceH, "BOTTOMLEFT", 0, -20)
-    lblBGColor:SetText("Panel Color / Alpha")
-    
-    local btnBGColor = CreateFrame("Button", nil, bgPanel)
-    btnBGColor:SetSize(20, 20)
-    btnBGColor:SetPoint("LEFT", lblBGColor, "RIGHT", 10, 0)
-    btnBGColor.texture = btnBGColor:CreateTexture(nil, "ARTWORK")
-    btnBGColor.texture:SetAllPoints()
-    btnBGColor.texture:SetColorTexture(1, 1, 1, 1) -- placeholder
-    
-    local function UpdateBGColorSwatch()
-        local c = addon.db.backgroundPanelColor
-        btnBGColor.texture:SetColorTexture(c.r, c.g, c.b, c.a)
-    end
-    UpdateBGColorSwatch()
-    
-    btnBGColor:SetScript("OnClick", function()
-        local c = addon.db.backgroundPanelColor
-        
-        if ColorPickerFrame.SetupColorPickerAndShow then
-            -- New Color Picker API (10.2.5+)
-            local info = {
-                r = c.r, g = c.g, b = c.b, opacity = c.a,
-                hasOpacity = true,
-                swatchFunc = function()
-                     local r,g,b = ColorPickerFrame:GetColorRGB()
-                     local a = ColorPickerFrame:GetColorAlpha()
-                     addon.db.backgroundPanelColor = {r=r, g=g, b=b, a=a}
-                     UpdateBGColorSwatch()
-                     addon:UpdateBackgroundPanel()
-                end,
-                opacityFunc = function() 
-                     local r,g,b = ColorPickerFrame:GetColorRGB()
-                     local a = ColorPickerFrame:GetColorAlpha()
-                     addon.db.backgroundPanelColor = {r=r, g=g, b=b, a=a}
-                     UpdateBGColorSwatch()
-                     addon:UpdateBackgroundPanel()
-                end,
-                cancelFunc = function()
-                     addon.db.backgroundPanelColor = {r=c.r, g=c.g, b=c.b, a=c.a}
-                     UpdateBGColorSwatch()
-                     addon:UpdateBackgroundPanel()
-                end
-            }
-            ColorPickerFrame:SetupColorPickerAndShow(info)
-        else
-            -- Legacy Color Picker API
-            local info = {
-                r = c.r, g = c.g, b = c.b, opacity = 1 - c.a,
-                hasOpacity = true,
-                swatchFunc = function()
-                     local r,g,b = ColorPickerFrame:GetColorRGB()
-                     local a = 1 - OpacitySliderFrame:GetValue()
-                     addon.db.backgroundPanelColor = {r=r, g=g, b=b, a=a}
-                     UpdateBGColorSwatch()
-                     addon:UpdateBackgroundPanel()
-                end,
-                opacityFunc = function() 
-                     local r,g,b = ColorPickerFrame:GetColorRGB()
-                     local a = 1 - OpacitySliderFrame:GetValue()
-                     addon.db.backgroundPanelColor = {r=r, g=g, b=b, a=a}
-                     UpdateBGColorSwatch()
-                     addon:UpdateBackgroundPanel()
-                end,
-                cancelFunc = function()
-                     addon.db.backgroundPanelColor = {r=c.r, g=c.g, b=c.b, a=c.a}
-                     UpdateBGColorSwatch()
-                     addon:UpdateBackgroundPanel()
-                end
-            }
-            ColorPickerFrame:SetColorRGB(info.r, info.g, info.b)
-            ColorPickerFrame.hasOpacity = info.hasOpacity
-            ColorPickerFrame.opacity = info.opacity
-            ColorPickerFrame.previousValues = {r = info.r, g = info.g, b = info.b, opacity = info.opacity}
-            ColorPickerFrame.func = info.swatchFunc
-            ColorPickerFrame.opacityFunc = info.opacityFunc
-            ColorPickerFrame.cancelFunc = info.cancelFunc
-            ColorPickerFrame:Show()
-        end
-    end)
-    
-    -- Width / Height Inputs
-    local lblDimensions = bgPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    lblDimensions:SetPoint("TOPLEFT", lblBGColor, "BOTTOMLEFT", 0, -20)
-    lblDimensions:SetText("Dimensions")
+    -- Every control in this section shares the title's left edge
+    local enabled = CreateDBCheckbox(section, "Enable Friendly Name Rendering", "nameplateFriendlyNamesEnabled",
+        "Draws a readable name above friendly players' simplified nameplates.", ApplyNames)
+    enabled:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -12)
 
-    -- Setter for the dimension sliders; refreshes every dimension control
-    local function SetBGDimension(key, value)
-        value = math.max(16, math.floor((tonumber(value) or 0) + 0.5))
-        if addon.db[key] == value then return end
-        addon.db[key] = value
-        addon:UpdateBackgroundPanel()
-        addon:RefreshSettings("background")
+    local showTitle = CreateDBCheckbox(section, "Show Title", "nameplateFriendlyNamesShowTitle",
+        "Includes the player's title in their name.", ApplyNames)
+    showTitle:SetPoint("TOPLEFT", enabled, "BOTTOMLEFT", 0, -4)
+
+    local showGuild = CreateDBCheckbox(section, "Show Guild Name", "nameplateFriendlyNamesShowGuild",
+        "Also shows the player's guild name.", ApplyNames)
+    showGuild:SetPoint("TOPLEFT", showTitle, "BOTTOMLEFT", 0, -4)
+
+    local classColor = CreateDBCheckbox(section, "Use Class Colors on Friendly Names", "nameplateUseClassColorForFriendlyPlayerUnitNames",
+        "Colors friendly player names by class.", function() addon:UpdateFriendlyClassColor() end)
+    classColor:SetPoint("TOPLEFT", showGuild, "BOTTOMLEFT", 0, -4)
+
+    local lastCheckbox = classColor
+    if addon:IsFeatureSupported("simplifiedNameplateTypes") then
+        local fullInInstances = CreateDBCheckbox(section, "Use Default Friendly Nameplates in Instances", "nameplateFullFriendlyInInstances",
+            "Addons can't draw on friendly nameplates in dungeons, raids and scenarios, so simplified plates show no names there. This turns simplified friendly player nameplates off while you are inside one and back on when you leave.",
+            function() addon:UpdateInstanceSimplifiedNameplates() end)
+        fullInInstances:SetPoint("TOPLEFT", classColor, "BOTTOMLEFT", 0, -4)
+        lastCheckbox = fullInInstances
     end
 
-    -- Width / Height Sliders (max is the screen size, set when the page opens)
-    local function CreateDimensionSlider(key, label, anchorTo)
-        local slider = W.CreateSlider(bgPanel, {
+    local scale = CreateDBSlider(section, "nameplateFriendlyScale",
+        { label = "Nameplate Scale (%)", min = 0.5, max = 3.0, step = 0.05, width = 220, scale = 100, apply = ApplyNames },
+        "Size of friendly nameplates, where 100% is their normal size.")
+    scale:SetPoint("TOPLEFT", lastCheckbox, "BOTTOMLEFT", 0, -28)
+
+    local fontLabel = CreateLabel(section, "Font")
+    fontLabel:SetPoint("TOPLEFT", scale, "BOTTOMLEFT", 0, -24)
+    local fontDropdown = CreateDBFontDropdown(section, "nameplateFriendlyNameFont", ApplyNames)
+    fontDropdown:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -2)
+    W.AttachHover(fontDropdown, { top = fontLabel, body = "Typeface for friendly names. Lists fonts from LibSharedMedia and FontMagic too, when they're installed." })
+
+    local color = CreateColorSwatch(section, "Color", "nameplateFriendlyNameColor", ApplyNames)
+    color:SetPoint("LEFT", fontDropdown, "RIGHT", 26, 0)
+
+    local outlineLabel = CreateLabel(section, "Outline Type")
+    outlineLabel:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -46)
+    local outlineDropdown = CreateDBChoiceDropdown(section, 160, {
+        { text = "None", value = "NONE" },
+        { text = "Outline", value = "OUTLINE" },
+        { text = "Thick Outline", value = "THICKOUTLINE" },
+    }, "nameplateFriendlyNameOutline", ApplyNames)
+    outlineDropdown:SetPoint("TOPLEFT", outlineLabel, "BOTTOMLEFT", 0, -2)
+    W.AttachHover(outlineDropdown, { top = outlineLabel, body = "Outline drawn around friendly names." })
+
+    local size = CreateDBSlider(section, "nameplateFriendlyNameSize",
+        { label = "Font Size", min = 8, max = 64, step = 1, width = 220, apply = ApplyNames },
+        "Size of friendly names.")
+    size:SetPoint("TOPLEFT", outlineLabel, "BOTTOMLEFT", 0, -62)
+
+    local offsetX = CreateDBSlider(section, "nameplateFriendlyNameOffsetX",
+        { label = "X Offset", min = -100, max = 100, step = 1, width = 220, apply = ApplyNames },
+        "Moves friendly names left or right of the nameplate's center.")
+    offsetX:SetPoint("TOPLEFT", size, "BOTTOMLEFT", 0, -30)
+
+    local offsetY = CreateDBSlider(section, "nameplateFriendlyNameOffsetY",
+        { label = "Y Offset", min = -100, max = 100, step = 1, width = 220, apply = ApplyNames },
+        "Moves friendly names up or down from the nameplate.")
+    offsetY:SetPoint("TOPLEFT", offsetX, "BOTTOMLEFT", 0, -30)
+
+    local justifyLabel = CreateLabel(section, "Justification")
+    justifyLabel:SetPoint("TOPLEFT", offsetY, "BOTTOMLEFT", 0, -22)
+    local justifyDropdown = CreateDBChoiceDropdown(section, 120, {
+        { text = "Left", value = "LEFT" },
+        { text = "Center", value = "CENTER" },
+        { text = "Right", value = "RIGHT" },
+    }, "nameplateFriendlyNameJustify", ApplyNames)
+    justifyDropdown:SetPoint("TOPLEFT", justifyLabel, "BOTTOMLEFT", 0, -2)
+    W.AttachHover(justifyDropdown, { top = justifyLabel, body = "Which edge of the name area friendly names line up against." })
+end
+
+-- ============================================================================
+-- Background panel
+-- ============================================================================
+
+local BACKGROUND_PANEL_POSITION_KEYS = {
+    "backgroundPanelWidth", "backgroundPanelHeight", "backgroundPanelX", "backgroundPanelY",
+    "backgroundPanelAnchor", "backgroundPanelForceWidth", "backgroundPanelForceHeight",
+}
+
+local function BuildBackgroundPage(page)
+    local section, title = CreateSection(page, "Background Panel", "Configure the global background panel.", 470)
+    local RefreshControls
+    local function ApplyPanel() addon:UpdateBackgroundPanel() end
+    -- Also refreshes the size sliders, which follow the forced dimensions
+    local function ApplyPanelAndControls()
+        ApplyPanel()
+        RefreshControls()
+    end
+
+    local enabled = CreateDBCheckbox(section, "Enable Background Panel", "backgroundPanelEnabled",
+        "Shows a colored panel you can size and place anywhere, for example behind other parts of your UI.", ApplyPanel)
+    enabled:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -12)
+
+    local locked = CreateDBCheckbox(section, "Lock Panel Position", "backgroundPanelLocked",
+        "Stops the background panel from being dragged or resized.", ApplyPanel)
+    locked:SetPoint("TOPLEFT", enabled, "BOTTOMLEFT", 0, -8)
+
+    local forceWidth = CreateDBCheckbox(section, "Force Screen Width", "backgroundPanelForceWidth",
+        "Makes the background panel exactly as wide as the screen.", ApplyPanelAndControls)
+    forceWidth:SetPoint("TOPLEFT", locked, "BOTTOMLEFT", 0, -8)
+
+    local forceHeight = CreateDBCheckbox(section, "Force Screen Height", "backgroundPanelForceHeight",
+        "Makes the background panel exactly as tall as the screen.", ApplyPanelAndControls)
+    forceHeight:SetPoint("TOPLEFT", forceWidth, "BOTTOMLEFT", 0, -8)
+
+    local color = CreateColorSwatch(section, "Panel Color / Alpha", "backgroundPanelColor", ApplyPanel)
+    color:SetPoint("TOPLEFT", forceHeight, "BOTTOMLEFT", 0, -16)
+
+    local dimensionsLabel = CreateLabel(section, "Dimensions", "GameFontHighlight")
+    dimensionsLabel:SetPoint("TOPLEFT", color, "BOTTOMLEFT", 0, -16)
+
+    -- Width and height; the most is the screen's size, set whenever the page opens
+    local function CreateDimensionSlider(dbKey, label, anchorTo)
+        local slider = W.CreateSlider(section, {
             label = label, min = 16, max = 4096, step = 1, width = 300,
-            value = addon.db[key] or 16,
-            onChange = function(value) SetBGDimension(key, value) end,
+            value = addon.db[dbKey],
+            onChange = function(value)
+                value = math.max(16, math.floor(value + 0.5))
+                if addon.db[dbKey] ~= value then
+                    addon.db[dbKey] = value
+                    ApplyPanelAndControls()
+                end
+            end,
         })
         slider:SetPoint("TOPLEFT", anchorTo, "BOTTOMLEFT", 0, -30)
         W.AttachHover(slider, { body = label .. " of the background panel, in pixels, up to the size of the screen. Fixed to the screen's " .. label:lower() .. " while Force Screen " .. label .. " is on." })
         return slider
     end
 
-    local sliderWidth = CreateDimensionSlider("backgroundPanelWidth", "Width", lblDimensions)
-    local sliderHeight = CreateDimensionSlider("backgroundPanelHeight", "Height", sliderWidth)
+    local widthSlider = CreateDimensionSlider("backgroundPanelWidth", "Width", dimensionsLabel)
+    local heightSlider = CreateDimensionSlider("backgroundPanelHeight", "Height", widthSlider)
 
-    -- Anchor Dropdown
-    local lblAnchor = bgPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    lblAnchor:SetPoint("TOPLEFT", sliderHeight, "BOTTOMLEFT", 0, -24)
-    lblAnchor:SetText("Anchor Point")
+    local anchorLabel = CreateLabel(section, "Anchor Point", "GameFontHighlight")
+    anchorLabel:SetPoint("TOPLEFT", heightSlider, "BOTTOMLEFT", 0, -24)
 
     local anchorOptions = {}
     for i, anchor in ipairs({ "TOPLEFT", "TOP", "TOPRIGHT", "LEFT", "CENTER", "RIGHT", "BOTTOMLEFT", "BOTTOM", "BOTTOMRIGHT" }) do
         anchorOptions[i] = { text = anchor, value = anchor }
     end
-    -- Just switches the anchor; X/Y aren't converted, so the panel may jump. Drag it to fix.
-    -- UpdateBackgroundPanel(true) signals the anchor changed.
-    local dropAnchor = CreateDBChoiceDropdown(bgPanel, 120, anchorOptions, "backgroundPanelAnchor", "CENTER",
-        function() addon:UpdateBackgroundPanel(true) end)
-    dropAnchor:SetPoint("LEFT", lblAnchor, "RIGHT", 10, 0)
-    W.AttachHover(dropAnchor, { top = lblAnchor, body = "The point of the screen the panel's position is measured from. Changing it can make the panel jump; drag it back into place." })
-
-
-
-    -- Reset Button
-    local btnReset = CreateFrame("Button", nil, bgPanel, "UIPanelButtonTemplate")
-    btnReset:SetSize(120, 22)
-    btnReset:SetPoint("TOPLEFT", lblAnchor, "BOTTOMLEFT", 0, -30)
-    btnReset:SetText("Reset Position")
-    btnReset:SetScript("OnClick", function()
-        -- Reset database values to default
-        addon.db.backgroundPanelWidth = 400
-        addon.db.backgroundPanelHeight = 100
-        addon.db.backgroundPanelX = 0
-        addon.db.backgroundPanelY = 0
-        addon.db.backgroundPanelAnchor = "CENTER"
-        addon.db.backgroundPanelForceWidth = false
-        addon.db.backgroundPanelForceHeight = false
-
-        -- Update UI
-        addon:UpdateBackgroundPanel()
-        addon:RefreshSettings("background")
-    end)
-
-    -- Listener for external updates (e.g. drag resizing)
-    function addon:RefreshSettings(module)
-        if module ~= "background" or not sliderWidth:IsVisible() then return end
-        local db = addon.db
-
-        -- Always show the panel's real size (screen size when forced)
-        local w, h = addon:GetBackgroundPanelSize()
-        local bgFrame = addon.backgroundPanel
-        if bgFrame and bgFrame.dragRect then
-            w, h = bgFrame.dragRect[3], bgFrame.dragRect[4]
-        end
-        w, h = math.floor(w + 0.5), math.floor(h + 0.5)
-        local sw, sh = math.floor(GetScreenWidth() + 0.5), math.floor(GetScreenHeight() + 0.5)
-
-        sliderWidth:SetMinMaxValues(16, math.max(sw, w))
-        sliderWidth:SetValue(w, true)
-        sliderHeight:SetMinMaxValues(16, math.max(sh, h))
-        sliderHeight:SetValue(h, true)
-
-        sliderWidth:SetEnabled(not db.backgroundPanelForceWidth)
-        sliderHeight:SetEnabled(not db.backgroundPanelForceHeight)
-
-        chkBGEnable:SetChecked(db.backgroundPanelEnabled)
-        chkBGLock:SetChecked(db.backgroundPanelLocked)
-        chkBGForce:SetChecked(db.backgroundPanelForceWidth)
-        chkBGForceH:SetChecked(db.backgroundPanelForceHeight)
-
-        dropAnchor:Refresh()
-    end
-
-    chkBGForce:SetScript("OnClick", function(self)
-        addon.db.backgroundPanelForceWidth = self:GetChecked()
-        addon:UpdateBackgroundPanel()
-        addon:RefreshSettings("background")
-    end)
-
-    chkBGForceH:SetScript("OnClick", function(self)
-        addon.db.backgroundPanelForceHeight = self:GetChecked()
-        addon:UpdateBackgroundPanel()
-        addon:RefreshSettings("background")
-    end)
-
-
-    -- ====================
-    -- NAMEPLATE TAB CONTENT
-    -- ====================
-    local npFriendlyPanel, npFriendlyTitle = CreateSection(tabNameplates, "Friendly Simplified Names", "Render readable names above simplified friendly player nameplates.", 590)
-
-    -- Every control in this section shares the title's left edge.
-    local npFriendlyEnabled = W.CreateCheckbox(npFriendlyPanel)
-    npFriendlyEnabled:SetPoint("TOPLEFT", npFriendlyTitle, "BOTTOMLEFT", 0, -12)
-    W.AttachHover(npFriendlyEnabled, { body = "Draws a readable name above friendly players' simplified nameplates." })
-    npFriendlyEnabled.Text:SetText("Enable Friendly Name Rendering")
-    npFriendlyEnabled:SetChecked(addon.db.nameplateFriendlyNamesEnabled ~= false)
-    npFriendlyEnabled:SetScript("OnClick", function(self)
-        addon.db.nameplateFriendlyNamesEnabled = self:GetChecked()
-        if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
-    end)
-
-    local npFriendlyShowTitle = W.CreateCheckbox(npFriendlyPanel)
-    npFriendlyShowTitle:SetPoint("TOPLEFT", npFriendlyEnabled, "BOTTOMLEFT", 0, -4)
-    W.AttachHover(npFriendlyShowTitle, { body = "Includes the player's title in their name." })
-    npFriendlyShowTitle.Text:SetText("Show Title")
-    npFriendlyShowTitle:SetChecked(addon.db.nameplateFriendlyNamesShowTitle == true)
-    npFriendlyShowTitle:SetScript("OnClick", function(self)
-        addon.db.nameplateFriendlyNamesShowTitle = self:GetChecked()
-        if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
-    end)
-
-    local npFriendlyShowGuild = W.CreateCheckbox(npFriendlyPanel)
-    npFriendlyShowGuild:SetPoint("TOPLEFT", npFriendlyShowTitle, "BOTTOMLEFT", 0, -4)
-    W.AttachHover(npFriendlyShowGuild, { body = "Also shows the player's guild name." })
-    npFriendlyShowGuild.Text:SetText("Show Guild Name")
-    npFriendlyShowGuild:SetChecked(addon.db.nameplateFriendlyNamesShowGuild == true)
-    npFriendlyShowGuild:SetScript("OnClick", function(self)
-        addon.db.nameplateFriendlyNamesShowGuild = self:GetChecked()
-        addon:UpdateFriendlyNameplates()
-    end)
-
-    local npClassColor = W.CreateCheckbox(npFriendlyPanel)
-    npClassColor:SetPoint("TOPLEFT", npFriendlyShowGuild, "BOTTOMLEFT", 0, -4)
-    W.AttachHover(npClassColor, { body = "Colors friendly player names by class." })
-    npClassColor.Text:SetText("Use Class Colors on Friendly Names")
-    npClassColor:SetChecked(addon.db.nameplateUseClassColorForFriendlyPlayerUnitNames)
-    npClassColor:SetScript("OnClick", function(self)
-        addon.db.nameplateUseClassColorForFriendlyPlayerUnitNames = self:GetChecked()
-        addon:SetFriendlyClassColorCVar(self:GetChecked())
-        addon:UpdateFriendlyNameplates()
-    end)
-
-    local function UpdateFriendlyNameplates()
-        if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
-    end
-
-    local npFriendlyScale = CreateDBSlider(npFriendlyPanel, "Nameplate Scale (%)", "nameplateFriendlyScale", 1.0, 0.5, 3.0, 0.05, 220, 0, 100, UpdateFriendlyNameplates)
-    npFriendlyScale:SetPoint("TOPLEFT", npClassColor, "BOTTOMLEFT", 0, -28)
-    W.AttachHover(npFriendlyScale, { body = "Size of friendly nameplates, where 100% is their normal size." })
-
-    -- Sits between the class colour checkbox and the scale slider; scoped to stay under the local limit
-    do
-        local npFullInInstances = W.CreateCheckbox(npFriendlyPanel)
-        npFullInInstances:SetPoint("TOPLEFT", npClassColor, "BOTTOMLEFT", 0, -4)
-        W.AttachHover(npFullInInstances, { body = "Addons can't draw on friendly nameplates in dungeons, raids and scenarios, so simplified plates show no names there. This turns simplified friendly player nameplates off while you are inside one and back on when you leave." })
-        npFullInInstances.Text:SetText("Use Default Friendly Nameplates in Instances")
-        npFullInInstances:SetChecked(addon.db.nameplateFullFriendlyInInstances == true)
-        npFullInInstances:SetScript("OnClick", function(self)
-            addon.db.nameplateFullFriendlyInInstances = self:GetChecked()
-            addon:UpdateInstanceSimplifiedNameplates()
-        end)
-
-        if addon:IsFeatureSupported("simplifiedNameplateTypes") then
-            npFriendlyScale:SetPoint("TOPLEFT", npFullInInstances, "BOTTOMLEFT", 0, -28)
-        else
-            npFullInInstances:Hide()
-        end
-    end
-
-    local fontLabel = npFriendlyPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    fontLabel:SetPoint("TOPLEFT", npFriendlyScale, "BOTTOMLEFT", 0, -24)
-    fontLabel:SetText("Font")
-
-    local function BuildFriendlyFontList()
-        local fontList = {
-            { name = "Friz Quadrata", path = "Fonts\\FRIZQT__.TTF", group = "Blizzard" },
-            { name = "Arial Narrow", path = "Fonts\\ARIALN.TTF", group = "Blizzard" },
-            { name = "Morpheus", path = "Fonts\\MORPHEUS.TTF", group = "Blizzard" },
-            { name = "Skurri", path = "Fonts\\SKURRI.TTF", group = "Blizzard" },
-        }
-
-        local seenByPath = {}
-        for _, item in ipairs(fontList) do
-            seenByPath[item.path] = true
-        end
-
-        local function AddFontOption(name, path, group)
-            if not path or path == "" or seenByPath[path] then
-                return
-            end
-            seenByPath[path] = true
-            table.insert(fontList, { name = name, path = path, group = group or "Other" })
-        end
-
-        if LSM then
-            local fonts = LSM:HashTable("font")
-            local keys = {}
-            for k in pairs(fonts) do table.insert(keys, k) end
-            table.sort(keys)
-            for _, key in ipairs(keys) do
-                local fontPath = fonts[key]
-                AddFontOption(key, fontPath, "LibSharedMedia")
-            end
-        end
-
-        local function AddFontMagicFonts()
-            local hasFontMagic = C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("FontMagic")
-            if not hasFontMagic then
-                return
-            end
-
-            local fontMagicPath = "Interface\\AddOns\\FontMagic\\"
-            local groups = {
-                { label = "Popular", folder = "Popular", fonts = {
-                    "Pepsi.ttf", "bignoodletitling.ttf", "Expressway.ttf", "Bangers.ttf", "PTSansNarrow-Bold.ttf", "Roboto Condensed Bold.ttf",
-                    "NotoSans_Condensed-Bold.ttf", "Roboto-Bold.ttf", "AlteHaasGroteskBold.ttf", "CalibriBold.ttf", "Orbitron.ttf", "Prototype.ttf",
-                    "914Solid.ttf", "Halo.ttf", "Proxima Nova Condensed Bold.ttf", "Comfortaa-Bold.ttf", "Andika-Bold.ttf", "lemon-milk.ttf",
-                    "Good Brush.ttf", "KG HAPPY.ttf",
-                } },
-                { label = "Clean & Readable", folder = "Easy-to-Read", fonts = {
-                    "BauhausRegular.ttf", "Butterpop.ttf", "Diogenes.ttf", "Junegull.ttf", "Pantalone.ttf", "Resoft.ttf",
-                    "Retro Amour.ttf", "SF-Pro.ttf", "Solange.ttf", "Takeaway.ttf",
-                } },
-                { label = "Bold & Impact", folder = "BoldImpact", fonts = {
-                    "airstrikebold.ttf", "Blazed.ttf", "DieDieDie.ttf", "graff.ttf", "Green Fuz.otf", "Love Craft.ttf",
-                    "modernwarfare.ttf", "Showpop.ttf", "Skratchpunk.ttf", "Skullphabet.ttf", "Trashco.ttf", "Whiplash.ttf",
-                } },
-                { label = "Fantasy & RP", folder = "Fun", fonts = {
-                    "Acadian.ttf", "akash.ttf", "Caesar.ttf", "ComicRunes.ttf", "crygords.ttf", "Deltarune.ttf",
-                    "Elven.ttf", "Gunung.ttf", "Guroes.ttf", "HarryP.ttf", "Hobbit.ttf", "Kting.ttf",
-                    "leviathans.ttf", "MystikOrbs.ttf", "Odinson.ttf", "ParryHotter.ttf", "Pau.ttf", "Pokemon.ttf",
-                    "Runic.ttf", "Runy.ttf", "Ruritania.ttf", "Spongebob.ttf", "Starborn.ttf", "Starshines.ttf",
-                    "The Centurion .ttf", "Vampire Wars.ttf", "VTKS.ttf", "WaltographUI.ttf", "Wasser.ttf", "Wickedmouse.ttf",
-                    "WKnight.ttf", "Zombie.ttf",
-                } },
-                { label = "Sci-Fi & Tech", folder = "Future", fonts = {
-                    "04b.ttf", "albra.TTF", "Audiowide.ttf", "continuum.ttf", "dalek.ttf", "digital-7.ttf",
-                    "Digital.ttf", "Exocet.ttf", "Galaxyone.ttf", "Minecrafter.Reg.ttf", "pf_tempesta_seven.ttf", "Price.ttf",
-                    "RaceSpace.ttf", "RushDriver.ttf", "space age.ttf", "Terminator.ttf",
-                } },
-                { label = "Random", folder = "Random", fonts = {
-                    "accidentalpres.ttf", "animeace.ttf", "Barriecito.ttf", "baskethammer.ttf", "ChopSic.ttf", "college.ttf",
-                    "Disko.ttf", "Dmagic.ttf", "edgyh.ttf", "edkies.ttf", "FastHand.ttf", "figtoen.ttf",
-                    "font2.ttf", "Fraks.ttf", "Ginko.ttf", "Homespun.ttf", "IKARRG.TTF", "JJSTS.TTF",
-                    "KOMIKAX_.ttf", "Ktingw.ttf", "Melted.ttf", "Midorima.ttf", "Munsteria.ttf", "Rebuffed.TTF",
-                    "Shiruken.ttf", "shog.ttf", "Starcine.ttf", "Stentiga.ttf", "tsuchigumo.ttf", "WhoAsksSatan.ttf",
-                } },
-            }
-
-            local function TryAdd(groupLabel, basePath, fileName)
-                local fullPath = basePath .. fileName
-                if seenByPath[fullPath] then
-                    return
-                end
-
-                local label = fileName:gsub("%.[Tt][Tt][Ff]$", ""):gsub("%.[Oo][Tt][Ff]$", "")
-                AddFontOption(label, fullPath, "FontMagic: " .. groupLabel)
-            end
-
-            for _, group in ipairs(groups) do
-                local basePath = fontMagicPath .. group.folder .. "\\"
-                for _, fileName in ipairs(group.fonts) do
-                    TryAdd(group.label, basePath, fileName)
-                end
-            end
-
-            local customPath = "Interface\\AddOns\\FontMagicCustomFonts\\Custom\\"
-            if type(FontMagicCustomFonts) == "table" and type(FontMagicCustomFonts.PATH) == "string" and FontMagicCustomFonts.PATH ~= "" then
-                customPath = FontMagicCustomFonts.PATH
-            end
-            for i = 1, 20 do
-                TryAdd("Custom", customPath, i .. ".ttf")
-            end
-        end
-
-        AddFontMagicFonts()
-
-        local grouped = {}
-        local groupOrder = { "Blizzard", "LibSharedMedia" }
-        local known = { Blizzard = true, LibSharedMedia = true }
-
-        for _, item in ipairs(fontList) do
-            local group = item.group or "Other"
-            grouped[group] = grouped[group] or {}
-            table.insert(grouped[group], item)
-            if not known[group] then
-                known[group] = true
-                table.insert(groupOrder, group)
-            end
-        end
-
-        table.sort(groupOrder, function(a, b)
-            if a:find("^FontMagic:") and not b:find("^FontMagic:") then return false end
-            if b:find("^FontMagic:") and not a:find("^FontMagic:") then return true end
-            return a < b
-        end)
-
-        for _, group in ipairs(groupOrder) do
-            if grouped[group] then
-                table.sort(grouped[group], function(a, b)
-                    return a.name:lower() < b.name:lower()
-                end)
-            end
-        end
-
-        return fontList, grouped, groupOrder
-    end
-
-    -- Typeface dropdown whose entries are each drawn in their own font, one submenu per
-    -- source. getPath returns the chosen font file (nil, or one not listed, shows
-    -- "Default"); setPath stores a new one. The stepper buttons walk every group in turn.
-    local previewFonts = {}
-    local previewFontCount = 0
-    local function GetPreviewFont(path)
-        local font = previewFonts[path]
-        if font == nil then
-            previewFontCount = previewFontCount + 1
-            font = CreateFont("GUIT_FontPreview" .. previewFontCount)
-            -- A missing font file raises an error on some clients and returns false on
-            -- others; SetFont returns nothing on success here
-            local ok, result = pcall(font.SetFont, font, path, 14, "")
-            if not ok or result == false then
-                font = false -- font file missing; left out of the menu
-            end
-            previewFonts[path] = font
-        end
-        return font or nil
-    end
-
-    local function CreateFontDropdown(parent, getPath, setPath)
-        local function IsSelected(path) return getPath() == path end
-        local function SetSelected(path) setPath(path) end
-
-        local dropdown = W.CreateDropdown(parent, 210, function(_, rootDescription)
-            local _, grouped, groupOrder = BuildFriendlyFontList()
-            for _, group in ipairs(groupOrder) do
-                -- Only fonts whose file loads; the FontMagic lists name files that may not be installed
-                local fontsInGroup = {}
-                for _, item in ipairs(grouped[group] or {}) do
-                    if GetPreviewFont(item.path) then
-                        table.insert(fontsInGroup, item)
-                    end
-                end
-                if #fontsInGroup > 0 then
-                    local groupDescription = rootDescription:CreateButton(group)
-                    for _, item in ipairs(fontsInGroup) do
-                        W.CreateFontRadio(groupDescription, item.name, GetPreviewFont(item.path), IsSelected, SetSelected, item.path)
-                    end
-                    W.LimitMenuHeight(groupDescription, #fontsInGroup)
-                end
-            end
-        end)
-        dropdown.Dropdown:SetDefaultText("Default")
-        return dropdown
-    end
-
-    local fontDropdown = CreateFontDropdown(npFriendlyPanel,
-        function() return addon.db.nameplateFriendlyNameFont or "Fonts\\FRIZQT__.TTF" end,
-        function(path)
-            addon.db.nameplateFriendlyNameFont = path
-            addon:UpdateFriendlyNameplates()
-        end)
-    fontDropdown:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -2)
-    W.AttachHover(fontDropdown, { top = fontLabel, body = "Typeface for friendly names. Lists fonts from LibSharedMedia and FontMagic too, when they're installed." })
-
-    local function CreateNameColorSwatch(parent, relativeTo)
-        local lbl = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-        lbl:SetPoint("LEFT", relativeTo, "RIGHT", 26, 0)
-        lbl:SetText("Color")
-
-        local swatch = CreateFrame("Button", nil, parent, "BackdropTemplate")
-        swatch:SetSize(20, 20)
-        swatch:SetPoint("LEFT", lbl, "RIGHT", 8, 0)
-        swatch:SetBackdrop({
-            edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1,
-            bgFile = "Interface\\Buttons\\WHITE8x8", tiling = false
-        })
-        swatch:SetBackdropBorderColor(0.6, 0.6, 0.6)
-
-        local function UpdateSwatch()
-            local c = addon.db.nameplateFriendlyNameColor or { r = 1, g = 1, b = 1, a = 1 }
-            swatch:SetBackdropColor(c.r, c.g, c.b, c.a or 1)
-        end
-        UpdateSwatch()
-
-        swatch:SetScript("OnClick", function()
-            local c = addon.db.nameplateFriendlyNameColor or { r = 1, g = 1, b = 1, a = 1 }
-
-            local function GetAlphaSafe()
-                if ColorPickerFrame.GetColorAlpha then
-                    return ColorPickerFrame:GetColorAlpha()
-                elseif OpacitySliderFrame then
-                    return 1 - OpacitySliderFrame:GetValue()
-                end
-                return 1
-            end
-
-            local info = {
-                r = c.r,
-                g = c.g,
-                b = c.b,
-                opacity = 1 - (c.a or 1),
-                hasOpacity = true,
-                swatchFunc = function()
-                    local r, g, b = ColorPickerFrame:GetColorRGB()
-                    local a = GetAlphaSafe()
-                    addon.db.nameplateFriendlyNameColor = { r = r, g = g, b = b, a = a }
-                    UpdateSwatch()
-                    if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
-                end,
-                opacityFunc = function()
-                    local r, g, b = ColorPickerFrame:GetColorRGB()
-                    local a = GetAlphaSafe()
-                    addon.db.nameplateFriendlyNameColor = { r = r, g = g, b = b, a = a }
-                    UpdateSwatch()
-                    if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
-                end,
-                cancelFunc = function()
-                    addon.db.nameplateFriendlyNameColor = c
-                    UpdateSwatch()
-                    if addon.UpdateFriendlyNameplates then addon:UpdateFriendlyNameplates() end
-                end,
-            }
-
-            ColorPickerFrame:SetupColorPickerAndShow(info)
-        end)
-
-        return swatch
-    end
-
-    local _ = CreateNameColorSwatch(npFriendlyPanel, fontDropdown)
-
-    local outlineLabel = npFriendlyPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    outlineLabel:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -46)
-    outlineLabel:SetText("Outline Type")
-
-    -- Saved values may be lower case from older versions
-    local function UpperDBChoice(dbKey, default)
-        return function() return (addon.db[dbKey] or default):upper() end
-    end
-
-    local outlineDropdown = W.CreateChoiceDropdown(npFriendlyPanel, 160, {
-        { text = "None", value = "NONE" },
-        { text = "Outline", value = "OUTLINE" },
-        { text = "Thick Outline", value = "THICKOUTLINE" },
-    }, UpperDBChoice("nameplateFriendlyNameOutline", "OUTLINE"), function(value)
-        addon.db.nameplateFriendlyNameOutline = value
-        UpdateFriendlyNameplates()
-    end)
-    outlineDropdown:SetPoint("TOPLEFT", outlineLabel, "BOTTOMLEFT", 0, -2)
-    W.AttachHover(outlineDropdown, { top = outlineLabel, body = "Outline drawn around friendly names." })
-
-    local sizeSlider = CreateDBSlider(npFriendlyPanel, "Font Size", "nameplateFriendlyNameSize", 13, 8, 64, 1, 220, 0, nil, UpdateFriendlyNameplates)
-    sizeSlider:SetPoint("TOPLEFT", outlineLabel, "BOTTOMLEFT", 0, -62)
-    W.AttachHover(sizeSlider, { body = "Size of friendly names." })
-
-    local xSlider = CreateDBSlider(npFriendlyPanel, "X Offset", "nameplateFriendlyNameOffsetX", 0, -100, 100, 1, 220, 0, nil, UpdateFriendlyNameplates)
-    xSlider:SetPoint("TOPLEFT", sizeSlider, "BOTTOMLEFT", 0, -30)
-    W.AttachHover(xSlider, { body = "Moves friendly names left or right of the nameplate's center." })
-
-    local ySlider = CreateDBSlider(npFriendlyPanel, "Y Offset", "nameplateFriendlyNameOffsetY", 10, -100, 100, 1, 220, 0, nil, UpdateFriendlyNameplates)
-    ySlider:SetPoint("TOPLEFT", xSlider, "BOTTOMLEFT", 0, -30)
-    W.AttachHover(ySlider, { body = "Moves friendly names up or down from the nameplate." })
-
-    local justifyLabel = npFriendlyPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    justifyLabel:SetPoint("TOPLEFT", ySlider, "BOTTOMLEFT", 0, -22)
-    justifyLabel:SetText("Justification")
-
-    local justifyDropdown = W.CreateChoiceDropdown(npFriendlyPanel, 120, {
-        { text = "Left", value = "LEFT" },
-        { text = "Center", value = "CENTER" },
-        { text = "Right", value = "RIGHT" },
-    }, UpperDBChoice("nameplateFriendlyNameJustify", "CENTER"), function(value)
-        addon.db.nameplateFriendlyNameJustify = value
-        UpdateFriendlyNameplates()
-    end)
-    justifyDropdown:SetPoint("TOPLEFT", justifyLabel, "BOTTOMLEFT", 0, -2)
-    W.AttachHover(justifyDropdown, { top = justifyLabel, body = "Which edge of the name area friendly names line up against." })
-
-    -- ====================
-    -- COOLDOWN TAB CONTENT
-    -- ====================
-    -- Lives after the nameplate section to use the font dropdown; scoped to stay under the local limit
-    do
-        local cdMouseGroup, cdMouseTitle = CreateSection(tabCooldowns, "Cooldown Timer at Mouse", "Shows the time remaining beside the cursor when you press a spell that is still on cooldown.", 380, "cooldownAtMouse")
-
-        local cdMouseCheckbox = W.CreateCheckbox(cdMouseGroup)
-        cdMouseCheckbox:SetPoint("TOPLEFT", cdMouseTitle, "BOTTOMLEFT", 0, -12)
-        W.AttachHover(cdMouseCheckbox, { body = "When you press a spell that's still on cooldown, shows the time left beside your cursor." })
-        cdMouseCheckbox.Text:SetText("Show Cooldown Timer at Mouse")
-        cdMouseCheckbox:SetChecked(addon.db.cooldownAtMouseEnabled)
-
-        local cdMouseDurationSlider = CreateDBSlider(cdMouseGroup, "Duration (s)", "cooldownAtMouseDuration", 3.0, 1, 10, 0.5, 200, 1)
-        cdMouseDurationSlider:SetPoint("TOPLEFT", cdMouseCheckbox, "BOTTOMLEFT", 0, -28)
-        W.AttachHover(cdMouseDurationSlider, { body = "How long the timer stays beside the cursor, in seconds." })
-
-        local cdMouseOffsetSlider = CreateDBSlider(cdMouseGroup, "Offset Distance", "cooldownAtMouseOffset", 40, 0, 300, 1, 300)
-        cdMouseOffsetSlider:SetPoint("TOPLEFT", cdMouseDurationSlider, "BOTTOMLEFT", 0, -36)
-        W.AttachHover(cdMouseOffsetSlider, { body = "How far from the cursor the timer appears, in pixels." })
-
-        -- 0 is straight above the cursor
-        local cdMouseAngleSlider = CreateDBSlider(cdMouseGroup, "Offset Rotation (0 = above)", "cooldownAtMouseAngle", 90, 0, 355, 5, 300)
-        cdMouseAngleSlider:SetPoint("TOPLEFT", cdMouseOffsetSlider, "BOTTOMLEFT", 0, -36)
-        W.AttachHover(cdMouseAngleSlider, { body = "Which direction from the cursor the timer appears, in degrees clockwise from straight above: 90 is to the right, 180 below." })
-
-        local cdMouseSizeSlider = CreateDBSlider(cdMouseGroup, "Font Size", "cooldownAtMouseFontSize", 22, 8, 72, 1, 300, 0, nil,
-            function() addon:UpdateCooldownAtMouseFont() end)
-        cdMouseSizeSlider:SetPoint("TOPLEFT", cdMouseAngleSlider, "BOTTOMLEFT", 0, -36)
-        W.AttachHover(cdMouseSizeSlider, { body = "Size of the cooldown timer text." })
-
-        local cdMouseFontLabel = cdMouseGroup:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-        cdMouseFontLabel:SetPoint("TOPLEFT", cdMouseSizeSlider, "BOTTOMLEFT", 0, -24)
-        cdMouseFontLabel:SetText("Typeface")
-
-        local cdMouseFontDropdown = CreateFontDropdown(cdMouseGroup,
-            function() return addon.db.cooldownAtMouseFont or "Fonts\\FRIZQT__.TTF" end,
-            function(path)
-                addon.db.cooldownAtMouseFont = path
-                addon:UpdateCooldownAtMouseFont()
-            end)
-        cdMouseFontDropdown:SetPoint("TOPLEFT", cdMouseFontLabel, "BOTTOMLEFT", 0, -2)
-        W.AttachHover(cdMouseFontDropdown, { top = cdMouseFontLabel, body = "Typeface for the cooldown timer." })
-
-        local function UpdateCooldownControls()
-            local enabled = addon.db.cooldownAtMouseEnabled
-            cdMouseDurationSlider:SetEnabled(enabled)
-            cdMouseOffsetSlider:SetEnabled(enabled)
-            cdMouseAngleSlider:SetEnabled(enabled)
-            cdMouseSizeSlider:SetEnabled(enabled)
-            cdMouseFontDropdown:SetEnabled(enabled)
-            W.SetFontStringEnabled(cdMouseFontLabel, enabled)
-        end
-        UpdateCooldownControls()
-
-        cdMouseCheckbox:SetScript("OnClick", function(self)
-            addon.db.cooldownAtMouseEnabled = self:GetChecked()
-            addon:SetCooldownAtMouseEnabled(addon.db.cooldownAtMouseEnabled)
-            UpdateCooldownControls()
-        end)
-    end
-
-    -- ====================
-    -- COMBAT TEXT TAB CONTENT
-    -- ====================
-    -- The sliders show the live CVar values, re-read whenever a section is shown,
-    -- rather than a saved copy (see DamageNumbers.lua)
-    do
-        -- A section with one slider per setting in `group`, then a reset button
-        local function CreateDamageNumberSection(group, titleText, descriptionText, featureID)
-            local settings = addon:GetDamageNumberSettings(group)
-            local section, sectionTitle = CreateSection(tabCombatText, titleText, descriptionText, 80 + #settings * 56, featureID)
-
-            local sliders = {}
-            local anchor, gap = sectionTitle, -28
-            for _, setting in ipairs(settings) do
-                local key = setting.key
-                local slider = W.CreateSlider(section, {
-                    label = setting.label, min = setting.min, max = setting.max, step = setting.step,
-                    decimals = setting.decimals, width = 300,
-                    value = addon:GetDamageNumberSetting(key),
-                    onChange = function(value) addon:SetDamageNumberSetting(key, value) end,
-                })
-                slider:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, gap)
-                W.AttachHover(slider, { body = setting.tooltip })
-                sliders[key] = slider
-                anchor, gap = slider, -36
-            end
-
-            local resetButton = CreateFrame("Button", nil, section, "UIPanelButtonTemplate")
-            resetButton:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -26)
-            resetButton:SetSize(160, 22)
-            resetButton:SetText("Reset to Defaults")
-            W.AttachHover(resetButton, { body = "Puts the settings in this section back to the game's defaults." })
-
-            local function Refresh()
-                for key, slider in pairs(sliders) do
-                    slider:SetValue(addon:GetDamageNumberSetting(key), true)
-                end
-            end
-
-            resetButton:SetScript("OnClick", function()
-                addon:ResetDamageNumberSettings(group)
-                Refresh()
-            end)
-            section:SetScript("OnShow", Refresh)
-        end
-
-        CreateDamageNumberSection("position", "Damage Number Position", "Move the damage numbers above enemies higher or lower.", "damageNumberPosition")
-        CreateDamageNumberSection("spread", "Damage Number Spread", "Control how damage numbers scatter and drift.", "damageNumberSpread")
-    end
-
-    -- ====================
-    -- CHAT TEXT FONT (Chat tab; down here to use the font dropdown)
-    -- ====================
-    do
-        local chatFontGroup, chatFontTitle = CreateSection(tabChat, "Chat Text Font", "Change the typeface and size of the text in each chat window.", 270)
-        local selectedWindow = 1
-        local RefreshChatFontControls
-
-        local windowLabel = chatFontGroup:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-        windowLabel:SetPoint("TOPLEFT", chatFontTitle, "BOTTOMLEFT", 0, -14)
-        windowLabel:SetText("Chat Window")
-
-        -- Options are rebuilt each time it opens, so new and renamed windows are listed
-        local windowDropdown = W.CreateChoiceDropdown(chatFontGroup, 210,
-            function()
-                local options = {}
-                for i, id in ipairs(addon:GetChatWindowIDs()) do
-                    options[i] = { text = addon:GetChatWindowName(id), value = id }
-                end
-                return options
-            end,
-            function() return selectedWindow end,
-            function(id)
-                selectedWindow = id
-                RefreshChatFontControls()
-            end)
-        windowDropdown:SetPoint("TOPLEFT", windowLabel, "BOTTOMLEFT", 0, -2)
-        W.AttachHover(windowDropdown, { top = windowLabel, body = "The chat window whose font the settings below change. Each window keeps its own." })
-
-        local fontLabel = chatFontGroup:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-        fontLabel:SetPoint("TOPLEFT", windowLabel, "BOTTOMLEFT", 0, -46)
-        fontLabel:SetText("Typeface")
-
-        local fontDropdown = CreateFontDropdown(chatFontGroup,
-            function() return addon:GetChatFontOverride(selectedWindow).font end,
-            function(path) addon:SetChatFontOverride(selectedWindow, "font", path) end)
-        fontDropdown:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -2)
-        W.AttachHover(fontDropdown, { top = fontLabel, body = "Typeface for the text in the selected chat window." })
-
-        local sizeSlider = W.CreateSlider(chatFontGroup, {
-            label = "Font Size", min = 8, max = 32, step = 1, width = 300,
-            value = addon:GetChatFontSize(selectedWindow),
-            onChange = function(value) addon:SetChatFontOverride(selectedWindow, "size", value) end,
-        })
-        sizeSlider:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -62)
-        W.AttachHover(sizeSlider, { body = "Size of the text in the selected chat window." })
-
-        local resetButton = CreateFrame("Button", nil, chatFontGroup, "UIPanelButtonTemplate")
-        resetButton:SetPoint("TOPLEFT", sizeSlider, "BOTTOMLEFT", 0, -26)
-        resetButton:SetSize(160, 22)
-        resetButton:SetText("Reset This Window")
-
-        -- Shows the selected window's current font and size
-        function RefreshChatFontControls()
-            windowDropdown:Refresh()
-            fontDropdown:Refresh()
-            sizeSlider:SetValue(addon:GetChatFontSize(selectedWindow), true)
-        end
-
-        resetButton:SetScript("OnClick", function()
-            addon:ResetChatFont(selectedWindow)
-            RefreshChatFontControls()
-        end)
-
-        chatFontGroup:SetScript("OnShow", RefreshChatFontControls)
-        RefreshChatFontControls()
-    end
-
-    -- ====================
-    -- SPEED PANEL APPEARANCE (Speed tab; down here to use the font dropdown)
-    -- ====================
-    do
-        local speedLookGroup, speedLookTitle = CreateSection(tabSpeed, "Appearance", "Font, colors, background and border of the speed panel.", 460)
-
-        local function Apply()
-            addon:ApplySpeedPanelAppearance()
-        end
-
-        -- Dropdown over a list of { key = ..., name = ... } options
-        local function CreateChoiceDropdown(options, dbKey, defaultKey)
-            local choices = {}
-            for i, option in ipairs(options) do
-                choices[i] = { text = option.name, value = option.key }
-            end
-            return CreateDBChoiceDropdown(speedLookGroup, 210, choices, dbKey, defaultKey, Apply)
-        end
-
-        -- A label with a clickable color square that opens the color picker (with opacity)
-        local function CreateColorRow(labelText, dbKey, default)
-            local row = CreateFrame("Frame", nil, speedLookGroup)
-            row:SetSize(260, 20)
-
-            local label = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-            label:SetPoint("LEFT", row, "LEFT", 0, 0)
-            label:SetText(labelText)
-
-            local swatch = CreateFrame("Button", nil, row)
-            swatch:SetSize(20, 20)
-            swatch:SetPoint("LEFT", label, "RIGHT", 10, 0)
-            local border = swatch:CreateTexture(nil, "BACKGROUND")
-            border:SetAllPoints()
-            border:SetColorTexture(1, 1, 1, 1)
-            local fill = swatch:CreateTexture(nil, "ARTWORK")
-            fill:SetPoint("TOPLEFT", 1, -1)
-            fill:SetPoint("BOTTOMRIGHT", -1, 1)
-
-            local function Get()
-                return addon.db[dbKey] or default
-            end
-            local function Set(r, g, b, a)
-                addon.db[dbKey] = { r = r, g = g, b = b, a = a }
-                fill:SetColorTexture(r, g, b, 1)
-                Apply()
-            end
-            fill:SetColorTexture(Get().r, Get().g, Get().b, 1)
-
-            swatch:SetScript("OnClick", function()
-                if not ColorPickerFrame or not ColorPickerFrame.SetupColorPickerAndShow then
-                    return
-                end
-                local old = Get()
-                local function OnChanged()
-                    local r, g, b = ColorPickerFrame:GetColorRGB()
-                    Set(r, g, b, ColorPickerFrame:GetColorAlpha())
-                end
-                ColorPickerFrame:SetupColorPickerAndShow({
-                    r = old.r, g = old.g, b = old.b, opacity = old.a,
-                    hasOpacity = true,
-                    swatchFunc = OnChanged,
-                    opacityFunc = OnChanged,
-                    cancelFunc = function() Set(old.r, old.g, old.b, old.a) end,
-                })
-            end)
-
-            return row
-        end
-
-        local function CreateLabel(text, anchorTo, offsetY)
-            local label = speedLookGroup:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-            label:SetPoint("TOPLEFT", anchorTo, "BOTTOMLEFT", 0, offsetY)
-            label:SetText(text)
-            return label
-        end
-
-        -- Text
-        local fontLabel = CreateLabel("Typeface", speedLookTitle, -14)
-        local fontDropdown = CreateFontDropdown(speedLookGroup,
-            function() return addon.db.speedPanelFont end,
-            function(path)
-                addon.db.speedPanelFont = path
-                Apply()
-            end)
-        fontDropdown:SetPoint("TOPLEFT", fontLabel, "BOTTOMLEFT", 0, -2)
-        W.AttachHover(fontDropdown, { top = fontLabel, body = "Typeface for the speed panel's text." })
-
-        local outlineLabel = CreateLabel("Outline", fontLabel, -46)
-        local outlineDropdown = CreateChoiceDropdown(addon:GetSpeedPanelOutlineOptions(), "speedPanelFontOutline", "NONE")
-        outlineDropdown:SetPoint("TOPLEFT", outlineLabel, "BOTTOMLEFT", 0, -2)
-        W.AttachHover(outlineDropdown, { top = outlineLabel, body = "Outline drawn around the speed panel's text." })
-
-        local sizeSlider = CreateDBSlider(speedLookGroup, "Font Size", "speedPanelFontSize", 16, 8, 40, 1, 300, 0, nil, Apply)
-        sizeSlider:SetPoint("TOPLEFT", outlineLabel, "BOTTOMLEFT", 0, -62)
-        W.AttachHover(sizeSlider, { body = "Size of the speed panel's text." })
-
-        local textColorRow = CreateColorRow("Text Color", "speedPanelTextColor", { r = 1, g = 1, b = 1, a = 1 })
-        textColorRow:SetPoint("TOPLEFT", sizeSlider, "BOTTOMLEFT", 0, -28)
-
-        -- Background
-        local backgroundLabel = CreateLabel("Background", textColorRow, -18)
-        local backgroundDropdown = CreateChoiceDropdown(addon:GetSpeedPanelBackgroundOptions(), "speedPanelBackgroundKey", "dialog")
-        backgroundDropdown:SetPoint("TOPLEFT", backgroundLabel, "BOTTOMLEFT", 0, -2)
-        W.AttachHover(backgroundDropdown, { top = backgroundLabel, body = "Texture filling the speed panel's background. Its color is set below." })
-
-        local backgroundColorRow = CreateColorRow("Background Color / Opacity", "speedPanelBackgroundColor", { r = 0, g = 0, b = 0, a = 0.55 })
-        backgroundColorRow:SetPoint("TOPLEFT", backgroundLabel, "BOTTOMLEFT", 0, -46)
-
-        -- Border
-        local borderLabel = CreateLabel("Border", backgroundColorRow, -18)
-        local borderDropdown = CreateChoiceDropdown(addon:GetSpeedPanelBorderOptions(), "speedPanelBorderKey", "tooltip")
-        borderDropdown:SetPoint("TOPLEFT", borderLabel, "BOTTOMLEFT", 0, -2)
-        W.AttachHover(borderDropdown, { top = borderLabel, body = "Border drawn around the speed panel. Its color is set below." })
-
-        local borderColorRow = CreateColorRow("Border Color (shown when locked)", "speedPanelBorderColor", { r = 0.4, g = 0.4, b = 0.4, a = 0.9 })
-        borderColorRow:SetPoint("TOPLEFT", borderLabel, "BOTTOMLEFT", 0, -46)
-    end
-
-    addon.settingsPanel = panel
-    addon.settingsPages = addon.settingsPages or {}
-    for _, page in ipairs(orderedPages) do
-        addon.settingsPages[page.id] = page
-    end
-
-    -- Add to Interface Options as parent + subpages (Macro Toolkit style)
-    if Settings and Settings.RegisterCanvasLayoutCategory then
-        local category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
-        Settings.RegisterAddOnCategory(category)
-        addon.settingsCategory = category
-        addon.settingsSubcategories = addon.settingsSubcategories or {}
-
-        -- Pages with nothing viable on this client are left out of the list
-        for _, page in ipairs(orderedPages) do
-            if page.visibleSections > 0 then
-                local sub = Settings.RegisterCanvasLayoutSubcategory(category, page.frame, page.name)
-                addon.settingsSubcategories[page.id] = sub
-            end
-        end
-    else
-        InterfaceOptions_AddCategory(panel)
-        for _, page in ipairs(orderedPages) do
-            if page.visibleSections > 0 then
-                page.frame.parent = panel.name
-                page.frame.name = page.name
-                InterfaceOptions_AddCategory(page.frame)
-            end
-        end
-    end
-end
-
--- Open settings panel (Helper)
-function addon:OpenSettings()
-    if not self.settingsPanel then self:CreateSettingsPanel() end
-
-    local defaultPageID = "general"
-    local defaultPage = self.settingsPages and self.settingsPages[defaultPageID]
-
-    if Settings and Settings.OpenToCategory then
-        local targetCategory = self.settingsSubcategories and self.settingsSubcategories[defaultPageID]
-        if not targetCategory then
-            targetCategory = self.settingsCategory
-        end
-
-        local id = targetCategory and targetCategory:GetID()
-        if not id then
-            local fallbackCategory = Settings.GetCategory("Garage UI Tweaks")
-            id = fallbackCategory and fallbackCategory:GetID() or nil
-        end
-
-        if not id then
+    -- Just switches the anchor; X and Y aren't converted, so the panel may jump. Drag it to fix.
+    local anchorDropdown = CreateDBChoiceDropdown(section, 120, anchorOptions, "backgroundPanelAnchor", ApplyPanel)
+    anchorDropdown:SetPoint("LEFT", anchorLabel, "RIGHT", 10, 0)
+    W.AttachHover(anchorDropdown, { top = anchorLabel, body = "The point of the screen the panel's position is measured from. Changing it can make the panel jump; drag it back into place." })
+
+    local reset = CreateButton(section, "Reset Position", 120, function()
+        addon:ResetSettings(BACKGROUND_PANEL_POSITION_KEYS)
+        ApplyPanelAndControls()
+    end, "Puts the panel back in the middle of the screen at its starting size.")
+    reset:SetPoint("TOPLEFT", anchorLabel, "BOTTOMLEFT", 0, -30)
+
+    -- Shows the panel's real size (the screen's when forced, the dragged one mid-drag)
+    function RefreshControls()
+        if not widthSlider:IsVisible() then
             return
         end
+        local db = addon.db
 
-        Settings.OpenToCategory(id)
-    elseif InterfaceOptionsFrame_OpenToCategory then
-        local targetPanel = (defaultPage and defaultPage.frame) or self.settingsPanel
-        InterfaceOptionsFrame_OpenToCategory(targetPanel)
-        InterfaceOptionsFrame_OpenToCategory(targetPanel)
+        local width, height = addon:GetBackgroundPanelDragSize()
+        if not width then
+            width, height = addon:GetBackgroundPanelSize()
+        end
+        width, height = math.floor(width + 0.5), math.floor(height + 0.5)
+        local screenWidth, screenHeight = math.floor(GetScreenWidth() + 0.5), math.floor(GetScreenHeight() + 0.5)
+
+        widthSlider:SetMinMaxValues(16, math.max(screenWidth, width))
+        widthSlider:SetValue(width, true)
+        heightSlider:SetMinMaxValues(16, math.max(screenHeight, height))
+        heightSlider:SetValue(height, true)
+
+        widthSlider:SetEnabled(not db.backgroundPanelForceWidth)
+        heightSlider:SetEnabled(not db.backgroundPanelForceHeight)
+
+        enabled:SetChecked(db.backgroundPanelEnabled)
+        locked:SetChecked(db.backgroundPanelLocked)
+        forceWidth:SetChecked(db.backgroundPanelForceWidth)
+        forceHeight:SetChecked(db.backgroundPanelForceHeight)
+        anchorDropdown:Refresh()
+    end
+
+    -- Dragging the panel changes its size and position while this page is open
+    addon.RefreshBackgroundPanelSettings = function() RefreshControls() end
+    page.frame:SetScript("OnShow", RefreshControls)
+end
+
+-- ============================================================================
+-- The panel
+-- ============================================================================
+
+local PAGES = {
+    { id = "general", title = "General Tweaks", description = "Core quality-of-life improvements and shared behavior.", build = BuildGeneralPage },
+    { id = "frameadjustments", title = "Frame Tweaks", description = "Adjust frame strata and status tracking positioning.", build = BuildFramePage },
+    { id = "chat", title = "Chat Tweaks", description = "Customize chat behavior and chat frame controls.", build = BuildChatPage },
+    { id = "speed", title = "Speed Panel Tweaks", description = "Configure movement speed display options.", build = BuildSpeedPage },
+    { id = "cooldowns", title = "Cooldown Tweaks", description = "Configure cooldown display options.", build = BuildCooldownPage },
+    { id = "combattext", title = "Combat Text Tweaks", description = "Adjust where damage numbers and your own scrolling combat text appear.", build = BuildCombatTextPage },
+    { id = "nameplates", title = "Nameplate Tweaks", description = "Configure friendly nameplate appearance.", build = BuildNameplatePage },
+    { id = "background", title = "Background Panel Tweaks", description = "Background panel and visual backdrop options.", build = BuildBackgroundPage },
+}
+
+function addon:CreateSettingsPanel()
+    if self.settingsCategory then
+        return
+    end
+
+    local panel = CreateFrame("Frame", "GarageUITweaksOptionsPanel", UIParent)
+
+    local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", 16, -16)
+    title:SetText(PANEL_NAME)
+
+    local desc = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
+    desc:SetText("Configure your UI tweaks below.")
+
+    local overview = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    overview:SetPoint("TOPLEFT", desc, "BOTTOMLEFT", 0, -12)
+    overview:SetPoint("RIGHT", panel, "RIGHT", -24, 0)
+    overview:SetJustifyH("LEFT")
+    overview:SetText("Expand Garage UI Tweaks in the Settings list to open individual tweak pages.")
+
+    local category = Settings.RegisterCanvasLayoutCategory(panel, PANEL_NAME)
+    Settings.RegisterAddOnCategory(category)
+    self.settingsCategory = category
+    self.settingsSubcategories = {}
+
+    -- Pages with nothing this client supports are left out of the list
+    for _, info in ipairs(PAGES) do
+        local page = CreateSettingsPage(info.id, info.title, info.description)
+        info.build(page)
+        if page.visibleSections > 0 then
+            self.settingsSubcategories[info.id] = Settings.RegisterCanvasLayoutSubcategory(category, page.frame, page.name)
+        end
     end
 end
 
--- Initialize on Login
-local f = CreateFrame("Frame")
-f:RegisterEvent("PLAYER_LOGIN")
-f:SetScript("OnEvent", function(self, event)
-    if event == "PLAYER_LOGIN" then
-         addon:CreateSettingsPanel()
-    end
+function addon:OpenSettings()
+    self:CreateSettingsPanel()
+    local category = self.settingsSubcategories.general or self.settingsCategory
+    Settings.OpenToCategory(category:GetID())
+end
+
+local loginFrame = CreateFrame("Frame")
+loginFrame:RegisterEvent("PLAYER_LOGIN")
+loginFrame:SetScript("OnEvent", function()
+    addon:CreateSettingsPanel()
 end)
