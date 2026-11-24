@@ -11,6 +11,7 @@ Compat.lua
 Utils.lua
 ErrorTextBackground.lua
 FrameTweaks.lua
+AuctionHouse.lua
 SpeedPanel.lua
 CooldownAtMouse.lua
 DamageNumbers.lua

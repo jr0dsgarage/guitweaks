@@ -28,6 +28,9 @@ local DEFAULTS = {
     experienceBarsForceHighestStrata = false,
     topCenterWidgetOffset = 0,
 
+    -- Auction house width (AuctionHouse.lua)
+    auctionHouseFitTabs = false,
+
     -- Raid and party frame centering (RaidPartyFrames.lua)
     centerPartyFramesEnabled = false,
     centerRaidFramesEnabled = false,
@@ -138,6 +141,7 @@ local TWEAKS = {
     "UpdateBattlegroundMap",
     "UpdateExperienceBarStrata",
     "UpdateTopCenterWidgetOffset",
+    "UpdateAuctionHouseWidth",
     "UpdateOverrideActionBar",
     "UpdateMicroMenuArt",
     "UpdateRaidPartyFrameCentering",

@@ -528,6 +528,13 @@ local function BuildFramePage(page)
         { label = "Offset", min = 0, max = 100, step = 1, width = 340, apply = function() addon:UpdateTopCenterWidgetOffset() end },
         "Moves the widgets at the top center of the screen, such as battleground scores and zone objectives, down by this many pixels.")
     topCenterOffset:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -28)
+
+    -- Auction house
+    section, title = CreateSection(page, "Auction House", "Adjust the size of the auction house window.", 80)
+    CreateDBCheckbox(section, "Widen to fit all tabs", "auctionHouseFitTabs",
+        "Stretches the auction house window sideways so every tab below it, including those added by addons such as Auctionator, fits under the window.",
+        function() addon:UpdateAuctionHouseWidth() end)
+        :SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -10)
 end
 
 -- ============================================================================

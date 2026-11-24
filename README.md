@@ -17,6 +17,7 @@ Quality-of-life UI tweaks for World of Warcraft. Type `/guit` in game to open th
 - Experience, reputation and honor bars drawn above other frames.
 - Party and raid frames that stay centered as the group grows and shrinks.
 - Move the top center widgets (battleground scores, zone objectives) down.
+- Widen the auction house window to fit every tab below it, including those added by addons.
 
 ### Chat
 
